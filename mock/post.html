@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>模拟原帖</title>
+<style>
+  body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+         background: #0f1216; color: #e8eaed; font-family: -apple-system, "PingFang SC", sans-serif;
+         text-align: center; padding: 20px; }
+  .dim { color: #8b949e; font-size: 13px; }
+</style>
+</head>
+<body>
+<div>
+  <h1 id="t">模拟原帖</h1>
+  <p class="dim">这是 mock 原帖页（真实模式此处=抖音原帖页；本站不 iframe、不抓视频流、不下载本体）。</p>
+  <p>看完请按浏览器返回键回目录页——接力连刷全靠它。</p>
+</div>
+<script>
+  const q = new URLSearchParams(location.search);
+  document.title = `模拟原帖 #${q.get("n")}`;
+  document.getElementById("t").textContent = `模拟原帖 #${q.get("n")} · ${q.get("vid")}`;
+</script>
+</body>
+</html>

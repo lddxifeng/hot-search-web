@@ -24,16 +24,26 @@
   <div id="mock-banner" class="banner hidden">本地 mock 模式：数据全是假的，不打任何真实请求（暗号任意输）</div>
   <div id="overview" class="dim"></div>
   <div id="progress" class="dim"></div>
-  <button id="change-token" class="link-btn">换暗号</button>
+  <div class="header-ops">
+    <button id="change-token" class="link-btn">换暗号</button>
+    <span class="dim">·</span>
+    <span class="dim">原帖域名：</span>
+    <button id="host-ies" class="link-btn">iesdouyin</button>
+    <span class="dim">/</span>
+    <button id="host-dy" class="link-btn">douyin</button>
+  </div>
+  <div class="relay-ops">
+    <button id="relay-start" class="primary big">▶ 开始连刷</button>
+    <button id="relay-stop" class="danger hidden">■ 停止连刷</button>
+  </div>
 </header>
 
 <main>
   <div id="notice" class="notice hidden"></div>
-  <div id="batch-label" class="batch-label"></div>
-  <ol id="list" class="list"></ol>
+  <div id="directory"></div>
   <div id="controls" class="controls hidden">
-    <button id="next-batch" class="primary big">下一批 →</button>
-    <span id="prefetch-hint" class="dim"></span>
+    <button id="next-batch" class="btn">揭示下一批（备胎）</button>
+    <span id="reveal-hint" class="dim"></span>
   </div>
   <div id="end-page" class="end hidden">
     <p class="end-title">今日正推完</p>
@@ -42,8 +52,18 @@
   </div>
 </main>
 
+<!-- 接力倒计时横条（后悔药）：返回目录且 relay=on 且确从连刷跳转回来时出现 -->
+<div id="relay-bar" class="relay-bar hidden">
+  <div id="relay-text" class="relay-text"></div>
+  <div class="relay-count"><div id="relay-fill" class="relay-fill"></div></div>
+  <div class="relay-btns">
+    <button id="relay-replay" class="btn big"></button>
+    <button id="relay-pause" class="btn big">⏸ 暂停连刷</button>
+  </div>
+</div>
+
 <footer class="dim">
-  网页只放链接与文本 · 没有补按钮、没有任何写操作 · 编号与飞书卡片一一对应
+  网页只放链接与文本 · 不 iframe、不抓视频流、不下载本体 · 没有补按钮、没有任何写操作 · 编号与飞书卡片一一对应
 </footer>
 
 <script src="mock/fixture.js"></script>

@@ -27,6 +27,16 @@ grep -q 'localStorage.getItem(TOKEN_KEY)' app.js || hit "缺少 localStorage 暗
 grep -q 'const WORKER_BASE' app.js || hit "WORKER_BASE 常量缺失"
 grep -q 'example.com' mock/fixture.js || hit "fixture 必须用 example.com 死链"
 
+# 6) v3.1 硬约束：禁 iframe 抖音、禁抓视频流地址、原帖双候选与接力标记在位
+grep -rniE '<iframe|iframe ' --include="*.html" --include="*.js" . \
+  | grep -vE '不 iframe|frame-ancestors' && hit "出现 iframe" || true
+grep -q 'iesdouyin.com/share/video/' app.js || hit "缺 iesdouyin 原帖模板"
+grep -q 'douyin.com/video/' app.js || hit "缺 douyin 原帖模板"
+grep -q 'hs_relay_pending' app.js || hit "缺接力返回标记（hs_relay_pending）"
+grep -q 'pageshow' app.js || hit "缺 pageshow 返回检测"
+grep -q 'mock/post.html' app.js || hit "mock 原帖页未接线"
+[ -f mock/post.html ] || hit "mock/post.html 缺失"
+
 if [ "$fails" -ne 0 ]; then
   echo "密钥扫描未通过"
   exit 1
