@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>热搜连刷</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- 暗号弹层（拍板 e'：暗号永不进仓库；首次手动粘贴，存 localStorage 永久记住） -->
+<div id="token-modal" class="modal hidden">
+  <div class="modal-box">
+    <h2>输入连刷暗号</h2>
+    <p class="dim">同一设备+浏览器只需输一次（存 localStorage）；清浏览器数据/换浏览器/换设备才需重输。</p>
+    <p id="token-error" class="error hidden"></p>
+    <input id="token-input" type="password" placeholder="粘贴暗号" autocomplete="off">
+    <button id="token-save" class="primary">保存并开始</button>
+  </div>
+</div>
+
+<header>
+  <h1>热搜连刷 <span id="date" class="dim"></span></h1>
+  <div id="mock-banner" class="banner hidden">本地 mock 模式：数据全是假的，不打任何真实请求（暗号任意输）</div>
+  <div id="overview" class="dim"></div>
+  <div id="progress" class="dim"></div>
+  <button id="change-token" class="link-btn">换暗号</button>
+</header>
+
+<main>
+  <div id="notice" class="notice hidden"></div>
+  <div id="batch-label" class="batch-label"></div>
+  <ol id="list" class="list"></ol>
+  <div id="controls" class="controls hidden">
+    <button id="next-batch" class="primary big">下一批 →</button>
+    <span id="prefetch-hint" class="dim"></span>
+  </div>
+  <div id="end-page" class="end hidden">
+    <p class="end-title">今日正推完</p>
+    <p>想继续到群里发「补」</p>
+    <p id="end-recap" class="dim"></p>
+  </div>
+</main>
+
+<footer class="dim">
+  网页只放链接与文本 · 没有补按钮、没有任何写操作 · 编号与飞书卡片一一对应
+</footer>
+
+<script src="mock/fixture.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
