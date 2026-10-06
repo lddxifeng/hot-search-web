@@ -184,12 +184,14 @@ function renderDirectory() {
       li.dataset.num = v.num;
       const photo = v.is_photo ? " <span class='tag'>🖼图文</span>" : "";
       const watched = v.num === lastRet ? " <span class='tag hot'>刚看完</span>" : "";
-      // v4.1：四指标全是池内免费数据，非零才显示；不显示真赞/评/转/藏
+      // v4.1+补洞：指标全是池内免费数据，非零才显示；不显示真赞/评/转/藏。
+      // 赞播比前端现算=窗口赞/窗口播放（拍板：Worker 不透传 best_ratio）
       const stats = [];
-      if (Number(v.digg) > 0) stats.push(`👍${fmtWan(v.digg)}<span class="tag">近期</span>`);
+      if (Number(v.best_digg) > 0) stats.push(`👍${fmtWan(v.best_digg)}<span class="tag">近期</span>`);
       if (Number(v.score) > 0) stats.push(`🔥${fmtWan(v.score)}`);
       if (Number(v.play) > 0) stats.push(`▶${fmtWan(v.play)}<span class="tag">近期</span>`);
-      if (Number(v.ratio) > 0) stats.push(`赞播比 ${(Number(v.ratio) * 100).toFixed(1)}%`);
+      if (Number(v.best_digg) > 0 && Number(v.play) > 0)
+        stats.push(`赞播比 ${(Number(v.best_digg) / Number(v.play) * 100).toFixed(1)}%`);
       li.innerHTML =
         `<div class="num">#${v.num}</div>` +
         `<div class="body">` +
