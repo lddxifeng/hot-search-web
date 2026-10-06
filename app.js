@@ -13,7 +13,7 @@
 
 // === 配置项（全页唯一）：Worker 地址。地址公开属正常——页面与源码本就公开，
 //     真正的闸门是暗号 + 日 $0.30 熔断 + 每批 ≤10 + 402 熔断（Worker 侧四条保险） ===
-const WORKER_BASE = "https://feishu-bot-worker.你的子域.workers.dev";  // TODO(机主)：部署前改成你的 Worker 地址（dashboard 可见）
+const WORKER_BASE = "https://bot.hotsearch-xifeng.top";   // hotsearch-feishu-bot 绑定的自定义域名
 
 const TOKEN_KEY = "hotsearch_token";   // localStorage 键名（存的是用户手输的暗号，不是仓库硬编码）
 
