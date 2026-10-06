@@ -1,12 +1,17 @@
 "use strict";
-/* 热搜连刷 · 原帖接力连刷（网页 v3.1，2026-10-07 拍板）
+/* 热搜连刷 · 原帖接力连刷（网页 v4「去真赞化」，2026-10-07 拍板）
  *
  * 定位：本站只做「目录 + 接力导航」，视频流走抖音原帖页（永久免费、永不 403、
  * 原帖级清晰度）。不做沉浸式播放器、不 iframe（抖音 frame-ancestors 实测封死）、
  * 不抓视频流地址（临时链实测几分钟即烂）、不做播完自动跳转、不下载视频本体。
  *
- * 接力机制（后悔药）：逻辑只靠 localStorage 标记驱动（bfcache 与普通重载两条
- * 返回路径都走 pageshow → 同一段标记判断）——
+ * v4 去真赞化（机主 2026-10-07 拍板）：JIT 真赞揭示整体退役。网页不再调用
+ * /api/batch，全站不出现「揭示/解锁/花费」概念；整日计划（编号 #1~N + 标题/作者/
+ * 时长/窗口播放/分享链接）通过 /api/state 一次读取全量展示。条目不显示赞/评/转/藏，
+ * 只带 ▶窗口播放（标注「近期」口径）。
+ *
+ * 接力机制（后悔药，与 v3.1 一字不动）：逻辑只靠 localStorage 标记驱动（bfcache
+ * 与普通重载两条返回路径都走 pageshow → 同一段标记判断）——
  *   hs_relay    "on"/"off"   连刷开关
  *   hs_cur      当前序号（最后跳出/要续刷的编号；0=未开始）
  *   hs_pending  跳出去看的那条编号（返回目录=接力信号；处理即清，防 F5 重触发）
@@ -14,15 +19,14 @@
  *   hs_host     原帖域名偏好（iesdouyin / douyin；真机 A/B 后可换默认）
  * 连刷循环：跳出看 #N（pending=N）→ 浏览器返回（pageshow）→ relay=on 且 pending=N
  *   → 倒计时横条「即将播放 #N+1」2 秒（↺ 重看 #N / ⏸ 暂停）→ 到点无操作自动跳 #N+1；
- *   #N+1 未揭示 → 自动 /api/batch 揭示下一批（转圈「解锁中」，Worker 状态文件刹车
- *   幂等防重）→ 续跳；手动「揭示下一批」按钮保留备胎；#N=计划末条 → 结束页。
+ *   #N=计划末条 → 结束页「今日 N 条全部刷完」。
  *
  * 单看模式（relay=off）：点条目跳原帖，返回后不自动跳（不写任何接力标记）。
  * 连刷模式（relay=on）：点目录任意条目=从该条续刷（cur 改为该条）。
  *
  * 暗号（拍板 e'）：永不硬编码；首次弹框手粘，存 localStorage，请求带
  * X-Hotsearch-Token 头。网页无图文区为永久拍板决策（2026-10-06）：偶遇图文帖
- * 仍正确渲染（🖼徽标+无播放键+只走原帖），板块不做。
+ * 仍正确渲染（🖼徽标+只走原帖），板块不做。
  */
 
 // === 配置项（全页唯一）：Worker 地址。地址公开属正常——页面与源码本就公开，
@@ -39,18 +43,17 @@ const TOKEN_KEY = "hotsearch_token";   // localStorage 键名（存的是用户�
 
 // mock 模式：file:// 直接双击打开 或 显式 ?mock=1 → 全走 mock/fixture.js 假数据，
 // 不打任何真实请求（连 Worker 也不打）。Pages 线上 https 打开=真实 Worker。
-// mock 专属测试钩子：?setcur=N&relay=on 预设接力进度；?slow=1 倒计时放慢到 6 秒
-// （仅 mock 生效，便于验收「重看/暂停」两个后悔药按钮）。
+// mock 专属测试钩子：?setcur=N&relay=on 预设接力进度；?slow=1 倒计时放慢 15 秒；
+// ?hold=1 倒计时横条只显示不到点（均仅 mock 生效，供自动化验收点按钮）。
 const _q = new URLSearchParams(location.search);
 const MOCK = _q.has("mock") || location.protocol === "file:";
 
-const RELAY_COUNTDOWN_MS = (MOCK && _q.has("slow")) ? 15000 : 2000;   // 后悔药倒计时时长（mock 慢速档仅供自动化验收点按钮）
-const RELAY_HOLD = MOCK && _q.has("hold");   // mock 验收钩子：倒计时横条只显示不到点（重看/暂停按钮验收用）
+const RELAY_COUNTDOWN_MS = (MOCK && _q.has("slow")) ? 15000 : 2000;   // 后悔药倒计时时长
+const RELAY_HOLD = MOCK && _q.has("hold");   // mock 验收钩子：倒计时横条只显示不到点
 
 let token = localStorage.getItem(TOKEN_KEY) || "";
-let plan = null;                 // /api/state 回包
-let groups = new Map();          // 批号 → items（Worker 回包序=现取真赞降序）
-let revealedMaxNum = 0;          // 已揭示的最大编号
+let plan = null;                 // /api/state 回包（含 items 全量计划）
+let items = [];                  // 当日全部计划条目（一次读取，无揭示概念）
 let booted = false;
 let lastRet = 0;                 // 本次返回刚看完的编号（倒计时横条的重看目标）
 let countdownTimer = null;
@@ -76,62 +79,20 @@ function postUrl(v) {
   return (POST_HOSTS[R.host] || POST_HOSTS.iesdouyin)(v.vid);
 }
 
-// ---------- mock 引擎（本地自验；镜像 Worker：游标/花费/超界/缓存幂等） ----------
-// 揭示进度与花费存 localStorage（与真实 Worker 的状态文件同语义：刷新/重开不丢）；
-// ?mockreset=1 重置回初始（4 批 40 条已揭示、$0.040）。
-const mockDb = {
-  get revealed() {
-    try { return JSON.parse(localStorage.getItem("hs_mock_revealed") || "null") || MOCK_INIT_REVEALED.slice(); }
-    catch { return MOCK_INIT_REVEALED.slice(); }
-  },
-  set revealed(v) { localStorage.setItem("hs_mock_revealed", JSON.stringify(v)); },
-  get spend() {
-    const v = parseFloat(localStorage.getItem("hs_mock_spend"));
-    return Number.isFinite(v) ? v : MOCK_INIT_SPEND;
-  },
-  set spend(v) { localStorage.setItem("hs_mock_spend", String(v)); },
-};
-function mockReset() { mockDb.revealed = MOCK_INIT_REVEALED.slice(); mockDb.spend = MOCK_INIT_SPEND; }
-function mockApi(path, opts = {}) {
+// ---------- mock 引擎（v4：只认 /api/state；无 /api/batch 路由——调了就露馅） ----------
+function mockApi(path) {
   if (path === "/api/state") {
-    const rv = mockDb.revealed;
-    return Promise.resolve({
-      ok: true, live: true, date: MOCK_STATE.date,
-      total_items: MOCK_STATE.total_items, total_minutes: MOCK_STATE.total_minutes,
-      batch_sizes: MOCK_STATE.batch_sizes, revealed: rv.slice(),
-      next_batch: rv.length + 1, topup_done: 0,
-      spend_usd: mockDb.spend,
-    });
+    return Promise.resolve(Object.assign({ ok: true, live: true },
+      structuredClone(MOCK_STATE)));
   }
-  if (path === "/api/batch") {
-    const n = Number(opts.batch);
-    const b = MOCK_BATCHES[String(n)];
-    if (!b) {
-      return Promise.resolve({ ok: false, reason: "out_of_plan",
-        text: "今日正推已完，继续请发「补」", batches: MOCK_STATE.batch_sizes.length });
-    }
-    const rv = mockDb.revealed;
-    const cached = rv.includes(n);
-    if (!cached) {
-      rv.push(n);
-      mockDb.revealed = rv;
-      mockDb.spend = Math.round((mockDb.spend + b.cost) * 1000) / 1000;
-    }
-    return Promise.resolve(Object.assign({ ok: true, cached, persisted: true,
-      batch: n, batches: MOCK_STATE.batch_sizes.length,
-      total_items: MOCK_STATE.total_items, spend_usd: mockDb.spend },
-      structuredClone(b)));
-  }
-  return Promise.resolve({ ok: false, reason: "not_found" });
+  return Promise.resolve({ ok: false, reason: "not_found" });   // v4 没有第二个端点
 }
 
-// ---------- 真实 API（带暗号头） ----------
-async function api(path, opts = {}) {
-  if (MOCK) return mockApi(path, opts);
+// ---------- 真实 API（v4 只有 GET /api/state 一条路；带暗号头） ----------
+async function api(path) {
+  if (MOCK) return mockApi(path);
   const r = await fetch(WORKER_BASE + path, {
-    method: opts.method || "GET",
-    headers: { "X-Hotsearch-Token": token, "Content-Type": "application/json" },
-    body: opts.batch ? JSON.stringify({ batch: opts.batch }) : undefined,
+    headers: { "X-Hotsearch-Token": token },
   });
   const j = await r.json().catch(() => ({ ok: false, reason: "bad_json" }));
   if (r.status === 401 || j.reason === "bad_token") {
@@ -174,11 +135,7 @@ function syncTitle() {
     : "热搜连刷";
 }
 function findItem(num) {
-  for (const items of groups.values()) {
-    const hit = items.find((v) => v.num === num);
-    if (hit) return hit;
-  }
-  return null;
+  return items.find((v) => v.num === num) || null;
 }
 
 // ---------- 渲染 ----------
@@ -186,19 +143,14 @@ function renderHeader() {
   $("date").textContent = plan && plan.date ? `· ${plan.date}` : "";
   if (plan && plan.live) {
     $("overview").textContent =
-      `当日计划 ${plan.total_items} 条 = ${plan.batch_sizes.length} 批 ` +
-      `[${plan.batch_sizes.join(",")}]（总时长约 ${plan.total_minutes} 分钟）`;
-    $("progress").textContent =
-      `已刷到 #${R.cur}/${plan.total_items} · 已揭示 ${plan.revealed.length}/${plan.batch_sizes.length} 批` +
-      ` · 日现取花费 $${Number(plan.spend_usd).toFixed(3)}`;
+      `当日计划 ${plan.total_items} 条（总时长约 ${plan.total_minutes} 分钟）· 今日全免费`;
+    $("progress").textContent = `已刷到 #${R.cur}/${plan.total_items}`;
   } else {
     $("overview").textContent = "";
     $("progress").textContent = "";
   }
-  // 原帖域名切换高亮
   $("host-ies").classList.toggle("on", R.host === "iesdouyin");
   $("host-dy").classList.toggle("on", R.host === "douyin");
-  // 连刷按钮
   const done = plan && R.cur >= plan.total_items;
   $("relay-start").textContent = R.cur > 0 ? `▶ 继续 #${R.cur}` : "▶ 开始连刷";
   $("relay-start").classList.toggle("hidden", !!done);
@@ -209,18 +161,18 @@ function renderHeader() {
 function renderDirectory() {
   const root = $("directory");
   root.innerHTML = "";
-  const nums = [...groups.keys()].sort((a, b) => a - b);
-  for (const bno of nums) {
-    const items = groups.get(bno);
+  // 10 条一个视觉分区（第 1 区 #1–#10…）——纯视觉分区，无「揭示」概念
+  for (let s = 0; s * 10 < items.length; s++) {
     const sec = document.createElement("section");
     sec.className = "group";
+    const zone = items.slice(s * 10, s * 10 + 10);
     const h = document.createElement("div");
     h.className = "group-label";
-    h.textContent = `第 ${bno} 批 · #${items[0].num}–#${items[items.length - 1].num} · 现取真赞降序`;
+    h.textContent = `第 ${s + 1} 区 · #${zone[0].num}–#${zone[zone.length - 1].num}`;
     sec.appendChild(h);
     const ol = document.createElement("ol");
     ol.className = "list";
-    for (const v of items) {
+    for (const v of zone) {
       const li = document.createElement("li");
       li.className = "card";
       li.id = `item-${v.num}`;
@@ -231,7 +183,8 @@ function renderDirectory() {
         `<div class="num">#${v.num}</div>` +
         `<div class="body">` +
         `<span class="title">${escapeHtml(v.title) || "（无标题）"}</span>${photo}${watched}` +
-        `<div class="dim meta">${escapeHtml(v.author) || "—"} · 👍${fmtWan(v.digg)} · ${fmtDur(v.duration_ms)}</div>` +
+        `<div class="dim meta">${escapeHtml(v.author) || "—"} · ${fmtDur(v.duration_ms)}` +
+        ` · ▶${fmtWan(v.play)}<span class="tag">近期</span></div>` +
         `</div>`;
       li.addEventListener("click", () => {
         // 连刷模式点目录任意条目=从该条续刷；单看模式=纯跳转不写接力标记
@@ -242,10 +195,6 @@ function renderDirectory() {
     sec.appendChild(ol);
     root.appendChild(sec);
   }
-  // 备胎：手动揭示下一批（还有更多批时显示）
-  const more = plan && plan.revealed.length < plan.batch_sizes.length;
-  $("controls").classList.toggle("hidden", !more);
-  $("reveal-hint").textContent = more ? `还有 ${plan.batch_sizes.length - plan.revealed.length} 批未揭示` : "";
 }
 
 function notice(text) {
@@ -258,11 +207,8 @@ function showEnd() {
   R.pending = 0;
   hideRelayBar();
   $("directory").innerHTML = "";
-  $("controls").classList.add("hidden");
   $("end-page").classList.remove("hidden");
-  $("end-recap").textContent = plan
-    ? `今日 ${plan.total_items} 条全部刷完 · 日现取花费 $${Number(plan.spend_usd).toFixed(3)}`
-    : "";
+  $("end-recap").textContent = plan ? `今日 ${plan.total_items} 条全部刷完` : "";
   renderHeader();
 }
 
@@ -307,28 +253,8 @@ function startCountdown(nxt) {
   }, RELAY_COUNTDOWN_MS);
 }
 
-async function revealBatch(n) {
-  // 揭示下一批（$0.010；Worker 侧查状态文件刹车幂等防重——重复揭示=缓存零成本）
-  $("relay-text").textContent = `解锁第 ${n} 批中…（现取真赞）`;
-  $("relay-replay").textContent = "";
-  $("relay-bar").classList.remove("hidden");
-  const j = await api("/api/batch", { method: "POST", batch: n });
-  if (j.ok) {
-    groups.set(j.batch, j.items);
-    revealedMaxNum = Math.max(revealedMaxNum, ...j.items.map((v) => v.num));
-    plan = await api("/api/state");   // 游标/花费以状态文件为准
-    renderHeader();
-    renderDirectory();
-    return true;
-  }
-  hideRelayBar();
-  if (j.reason === "out_of_plan") { showEnd(); return false; }
-  notice(j.text || "揭示失败，请稍后再试（可点下方「揭示下一批」备胎）");
-  return false;
-}
-
 // 返回目录（pageshow 统一入口：bfcache 恢复与普通重载都走这里）
-async function onReturn() {
+function onReturn() {
   const n = R.pending;
   if (!R.on || !n || !plan || !plan.live) return;
   if (R.date && plan.date && R.date !== plan.date) { R.on = false; R.pending = 0; renderHeader(); return; }
@@ -338,19 +264,13 @@ async function onReturn() {
   const el = $(`item-${n}`);
   if (el) { el.classList.add("just-watched"); el.scrollIntoView({ block: "center" }); }
   if (n >= plan.total_items) { showEnd(); return; }          // 刷完全部
-  const nxt = n + 1;
-  if (nxt > revealedMaxNum) {
-    const ok = await revealBatch(plan.next_batch);           // 到已揭示末尾：自动揭示下一批
-    if (!ok) return;
-  }
-  startCountdown(nxt);
+  startCountdown(n + 1);            // v4：无揭示概念，直接接续
 }
 
 // ---------- 启动 ----------
 async function boot() {
   if (MOCK) {
     $("mock-banner").classList.remove("hidden");
-    if (_q.has("mockreset")) mockReset();
     // mock 测试钩子（仅 mock 生效）：?setcur=N&relay=on 预设接力进度
     if (_q.has("setcur")) { R.cur = Number(_q.get("setcur")) || 0; }
     if (_q.get("relay") === "on") { R.on = true; }
@@ -371,20 +291,11 @@ async function boot() {
   // 跨天作废旧接力进度
   if (R.date && R.date !== plan.date) { R.on = false; R.cur = 0; R.pending = 0; }
   R.date = plan.date;
-  // 拉全部已揭示批次（缓存零成本）→ 目录分组
-  groups = new Map();
-  for (const bno of plan.revealed) {
-    const j = await api("/api/batch", { method: "POST", batch: bno });
-    if (j.ok) groups.set(bno, j.items);
-  }
-  revealedMaxNum = 0;
-  for (const items of groups.values()) {
-    for (const v of items) revealedMaxNum = Math.max(revealedMaxNum, v.num);
-  }
+  items = Array.isArray(plan.items) ? plan.items : [];
   booted = true;
   renderHeader();
   renderDirectory();
-  await onReturn();                 // 若是「看原帖→返回」则进入接力倒计时
+  onReturn();                       // 若是「看原帖→返回」则进入接力倒计时
 }
 
 // ---------- 事件 ----------
@@ -424,12 +335,6 @@ $("relay-pause").addEventListener("click", () => {
   cancelCountdown(); hideRelayBar();
   R.on = false;                     // 暂停：停在目录，进度（cur）保留可续
   renderHeader();
-});
-$("next-batch").addEventListener("click", async () => {
-  // 备胎：手动揭示下一批到目录（幂等，Worker 刹车防重）
-  const btn = $("next-batch");
-  btn.disabled = true;
-  try { await revealBatch(plan.next_batch); } finally { btn.disabled = false; }
 });
 
 window.addEventListener("pageshow", () => { if (booted) onReturn(); });
