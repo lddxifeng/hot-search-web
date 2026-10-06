@@ -15,9 +15,10 @@ function _mkItem(num) {
     title: `示例热视频 · 第 ${num} 条`,
     author: `示例作者${((num - 1) % 5) + 1}`,
     duration_ms: (40 + ((num * 37) % 140)) * 1000,
-    best_digg: num % 7 === 0 ? 0 : 50000 - num * 500,       // 窗口赞（每 7 条 1 条为 0，验「非零才显示」）
+    best_digg: num % 7 === 0 ? 0 : 50000 - num * 500,       // 窗口赞·峰值（每 7 条 1 条为 0，验「非零才显示」）
     score: 90000 - num * 800,                             // 热度（榜分）
-    play: num % 5 === 0 ? 0 : 2000000 - num * 20000,      // 窗口播放（每 5 条 1 条为 0；赞播比=前端 best_digg/play 现算）
+    play: num % 5 === 0 ? 0 : 2000000 - num * 20000,      // 窗口播放·峰值（每 5 条 1 条为 0）
+    ratio: num % 11 === 0 ? 0 : (2 + (num % 5)) / 100,    // 赞播比·峰值（=Worker 透传的 best_ratio；每 11 条 1 条为 0）
     share_url: `https://example.com/v/${vid}`,
     is_photo: num === 8,                      // 1 条图文样本（验 🖼图文 渲染语义保留）
   };
