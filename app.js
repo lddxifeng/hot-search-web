@@ -1,14 +1,16 @@
 "use strict";
-/* 热搜连刷 · 原帖接力连刷（网页 v4「去真赞化」，2026-10-07 拍板）
+/* 热搜连刷 · 原帖接力连刷（网页 v4.1，2026-10-07 拍板）
  *
  * 定位：本站只做「目录 + 接力导航」，视频流走抖音原帖页（永久免费、永不 403、
  * 原帖级清晰度）。不做沉浸式播放器、不 iframe（抖音 frame-ancestors 实测封死）、
  * 不抓视频流地址（临时链实测几分钟即烂）、不做播完自动跳转、不下载视频本体。
  *
  * v4 去真赞化（机主 2026-10-07 拍板）：JIT 真赞揭示整体退役。网页不再调用
- * /api/batch，全站不出现「揭示/解锁/花费」概念；整日计划（编号 #1~N + 标题/作者/
- * 时长/窗口播放/分享链接）通过 /api/state 一次读取全量展示。条目不显示赞/评/转/藏，
- * 只带 ▶窗口播放（标注「近期」口径）。
+ * /api/batch，全站不出现「揭示/解锁/花费」概念；整日计划通过 /api/state 一次读取
+ * 全量展示。v4.1 追加：每条显示编号/标题/作者/时长/窗口赞（近期）/热度/窗口播放（近期）/
+ * 赞播比——全是池内免费数据，非零才显示；不显示真赞/评/转/藏。结束页文案=「今日正推
+ * N 条全部刷完 · 想继续到群里发『补』，补完回来刷新本页接着看」。补后接力：每次打开/
+ * 刷新重读 /api/state，补批续号条目自然列出，进度记忆与接力自然延续（无专门补模式）。
  *
  * 接力机制（后悔药，与 v3.1 一字不动）：逻辑只靠 localStorage 标记驱动（bfcache
  * 与普通重载两条返回路径都走 pageshow → 同一段标记判断）——
@@ -80,10 +82,11 @@ function postUrl(v) {
 }
 
 // ---------- mock 引擎（v4：只认 /api/state；无 /api/batch 路由——调了就露馅） ----------
+// ?mocktopup=1 → 补后场景（71 条：正推 61 + 补批 10，编号 #62~#71 接续）
 function mockApi(path) {
   if (path === "/api/state") {
     return Promise.resolve(Object.assign({ ok: true, live: true },
-      structuredClone(MOCK_STATE)));
+      structuredClone(_q.has("mocktopup") ? MOCK_STATE_TOPUP : MOCK_STATE)));
   }
   return Promise.resolve({ ok: false, reason: "not_found" });   // v4 没有第二个端点
 }
@@ -129,9 +132,9 @@ function escapeHtml(s) {
     .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 function syncTitle() {
-  // document.title 实时同步「#N/61 · 热搜连刷」（N=当前序号；未开始只显站名）
-  document.title = (plan && R.cur > 0)
-    ? `#${R.cur}/${plan.total_items} · 热搜连刷`
+  // document.title 实时同步「#N/总数 · 热搜连刷」（N=当前序号；分母含补批续号；未开始只显站名）
+  document.title = (plan && R.cur > 0 && items.length)
+    ? `#${R.cur}/${items.length} · 热搜连刷`
     : "热搜连刷";
 }
 function findItem(num) {
@@ -142,16 +145,18 @@ function findItem(num) {
 function renderHeader() {
   $("date").textContent = plan && plan.date ? `· ${plan.date}` : "";
   if (plan && plan.live) {
+    const extra = items.length - (plan.total_items || 0);   // 补批续号条目（补后接力：重读 state 自然多出）
     $("overview").textContent =
-      `当日计划 ${plan.total_items} 条（总时长约 ${plan.total_minutes} 分钟）· 今日全免费`;
-    $("progress").textContent = `已刷到 #${R.cur}/${plan.total_items}`;
+      `当日计划 ${plan.total_items} 条（总时长约 ${plan.total_minutes} 分钟）` +
+      (extra > 0 ? ` + 补 ${extra} 条` : "") + " · 今日全免费";
+    $("progress").textContent = `已刷到 #${R.cur}/${items.length}`;
   } else {
     $("overview").textContent = "";
     $("progress").textContent = "";
   }
   $("host-ies").classList.toggle("on", R.host === "iesdouyin");
   $("host-dy").classList.toggle("on", R.host === "douyin");
-  const done = plan && R.cur >= plan.total_items;
+  const done = plan && items.length > 0 && R.cur >= items.length;
   $("relay-start").textContent = R.cur > 0 ? `▶ 继续 #${R.cur}` : "▶ 开始连刷";
   $("relay-start").classList.toggle("hidden", !!done);
   $("relay-stop").classList.toggle("hidden", !R.on);
@@ -179,12 +184,19 @@ function renderDirectory() {
       li.dataset.num = v.num;
       const photo = v.is_photo ? " <span class='tag'>🖼图文</span>" : "";
       const watched = v.num === lastRet ? " <span class='tag hot'>刚看完</span>" : "";
+      // v4.1：四指标全是池内免费数据，非零才显示；不显示真赞/评/转/藏
+      const stats = [];
+      if (Number(v.digg) > 0) stats.push(`👍${fmtWan(v.digg)}<span class="tag">近期</span>`);
+      if (Number(v.score) > 0) stats.push(`🔥${fmtWan(v.score)}`);
+      if (Number(v.play) > 0) stats.push(`▶${fmtWan(v.play)}<span class="tag">近期</span>`);
+      if (Number(v.ratio) > 0) stats.push(`赞播比 ${(Number(v.ratio) * 100).toFixed(1)}%`);
       li.innerHTML =
         `<div class="num">#${v.num}</div>` +
         `<div class="body">` +
         `<span class="title">${escapeHtml(v.title) || "（无标题）"}</span>${photo}${watched}` +
         `<div class="dim meta">${escapeHtml(v.author) || "—"} · ${fmtDur(v.duration_ms)}` +
-        ` · ▶${fmtWan(v.play)}<span class="tag">近期</span></div>` +
+        (stats.length ? ` · ${stats.join(" · ")}` : "") +
+        `</div>` +
         `</div>`;
       li.addEventListener("click", () => {
         // 连刷模式点目录任意条目=从该条续刷；单看模式=纯跳转不写接力标记
@@ -208,7 +220,9 @@ function showEnd() {
   hideRelayBar();
   $("directory").innerHTML = "";
   $("end-page").classList.remove("hidden");
-  $("end-recap").textContent = plan ? `今日 ${plan.total_items} 条全部刷完` : "";
+  $("end-recap").textContent = plan
+    ? `今日正推 ${plan.total_items} 条全部刷完 · 想继续到群里发「补」，补完回来刷新本页接着看`
+    : "";
   renderHeader();
 }
 
@@ -239,7 +253,7 @@ function cancelCountdown() {
 function startCountdown(nxt) {
   // 后悔药横条：2 秒进度条 + ↺重看 #N / ⏸暂停；到点无操作自动接 #N+1
   cancelCountdown();
-  $("relay-text").textContent = `即将播放 #${nxt}/${plan.total_items}`;
+  $("relay-text").textContent = `即将播放 #${nxt}/${items.length}`;   // 分母含补批续号（补后接力）
   $("relay-replay").textContent = `↺ 重看 #${lastRet}`;
   $("relay-bar").classList.remove("hidden");
   requestAnimationFrame(() => {
@@ -263,7 +277,7 @@ function onReturn() {
   renderDirectory();                // 「刚看完」高亮
   const el = $(`item-${n}`);
   if (el) { el.classList.add("just-watched"); el.scrollIntoView({ block: "center" }); }
-  if (n >= plan.total_items) { showEnd(); return; }          // 刷完全部
+  if (n >= items.length) { showEnd(); return; }              // 刷完全部（含补批续号条目）
   startCountdown(n + 1);            // v4：无揭示概念，直接接续
 }
 
