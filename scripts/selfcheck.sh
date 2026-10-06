@@ -27,6 +27,24 @@ grep -q 'localStorage.getItem(TOKEN_KEY)' app.js || hit "缺少 localStorage 暗
 grep -q 'const WORKER_BASE' app.js || hit "WORKER_BASE 常量缺失"
 grep -q 'example.com' mock/fixture.js || hit "fixture 必须用 example.com 死链"
 
+# 6) v4.1 去真赞化：网页零 /api/batch 调用、无揭示/解锁/花费 UI 概念、无真赞字段
+grep -n '"/api/batch"' app.js && hit "仍有 /api/batch 调用" || true
+grep -nE '揭示|解锁|花费|日现取' index.html && hit "index.html 有揭示/花费概念" || true
+grep -nE '揭示下一批|解锁中|日现取花费|spend' app.js | grep -vE ':\s*(//|\*)' && hit "app.js 渲染串有揭示/花费概念" || true
+grep -n 'MOCK_BATCHES' mock/fixture.js && hit "fixture 仍有批次揭示遗产" || true
+grep -n 'digg_total' app.js index.html mock/fixture.js && hit "出现真赞字段（digg_total）" || true
+grep -n 'comment\|收藏' app.js index.html | grep -vE ':\s*(//|\*)' && hit "出现评论/收藏展示" || true
+
+# 7) v3.1 起硬约束：禁 iframe 抖音、禁抓视频流地址、原帖双候选与接力标记在位
+grep -rniE '<iframe|iframe ' --include="*.html" --include="*.js" . \
+  | grep -vE '不 iframe|frame-ancestors' && hit "出现 iframe" || true
+grep -q 'iesdouyin.com/share/video/' app.js || hit "缺 iesdouyin 原帖模板"
+grep -q 'douyin.com/video/' app.js || hit "缺 douyin 原帖模板"
+grep -q 'hs_relay_pending' app.js || hit "缺接力返回标记（hs_relay_pending）"
+grep -q 'pageshow' app.js || hit "缺 pageshow 返回检测"
+grep -q 'mock/post.html' app.js || hit "mock 原帖页未接线"
+[ -f mock/post.html ] || hit "mock/post.html 缺失"
+
 if [ "$fails" -ne 0 ]; then
   echo "密钥扫描未通过"
   exit 1

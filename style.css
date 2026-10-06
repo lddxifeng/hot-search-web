@@ -1,7 +1,7 @@
-/* 热搜连刷 · 深色手机优先（机主连刷专用页） */
+/* 热搜连刷 · 深色手机优先（机主连刷专用页，v3.1 原帖接力） */
 * { box-sizing: border-box; }
 body {
-  margin: 0; padding: 0 14px 60px;
+  margin: 0; padding: 0 14px 80px;
   background: #0f1216; color: #e8eaed;
   font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
   line-height: 1.55;
@@ -24,44 +24,65 @@ footer { margin-top: 34px; text-align: center; }
   margin: 14px 0; padding: 12px; border-radius: 8px;
   background: #2a1e1e; color: #ffb3a7; font-size: 14px;
 }
-.batch-label { margin: 16px 0 8px; color: #8b949e; font-size: 13px; }
+.header-ops { margin: 6px 0 2px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.header-ops .link-btn.on { color: #ffd479; font-weight: 700; }
+.relay-ops { margin: 12px 0 4px; display: flex; gap: 10px; }
+
+.group-label {
+  margin: 18px 0 8px; color: #8b949e; font-size: 13px;
+  border-left: 3px solid #1f6feb; padding-left: 8px;
+}
 
 .list { list-style: none; margin: 0; padding: 0; }
 .card {
   display: flex; gap: 10px; align-items: flex-start;
   background: #171b21; border: 1px solid #242a32; border-radius: 10px;
-  padding: 12px; margin-bottom: 10px;
+  padding: 12px; margin-bottom: 10px; cursor: pointer;
 }
+.card:active { background: #1c222b; }
+.card.just-watched { border-color: #ffd479; }
 .num { color: #ffd479; font-weight: 700; font-size: 15px; min-width: 44px; padding-top: 2px; }
 .body { flex: 1; min-width: 0; }
 .title { display: inline; font-size: 15px; font-weight: 600; color: #e8eaed; }
 .tag { font-size: 12px; color: #9fd6a4; margin-left: 6px; }
-.meta { margin: 4px 0 8px; }
-.actions { display: flex; gap: 8px; }
+.tag.hot { color: #ffd479; }
+.meta { margin-top: 4px; }
 
 .btn {
   display: inline-block; padding: 6px 14px; border-radius: 7px;
-  background: #242a32; color: #dfe5ea; font-size: 14px;
+  background: #242a32; color: #dfe5ea; font-size: 14px; border: 0;
 }
-.btn.primary, button.primary {
-  background: #1f6feb; color: #fff;
-}
+.btn.big { padding: 12px 18px; font-size: 15px; font-weight: 600; }
 button {
   font: inherit; border: 0; border-radius: 7px; cursor: pointer;
+  background: #242a32; color: #dfe5ea; padding: 6px 14px;
 }
-button.primary { padding: 8px 18px; }
-button.big { padding: 13px 30px; font-size: 16px; font-weight: 600; }
+button.primary { background: #1f6feb; color: #fff; padding: 8px 18px; }
+button.primary.big { padding: 14px 30px; font-size: 17px; font-weight: 700; }
+button.danger { background: #6e2b25; color: #ffd9d3; padding: 14px 22px; font-size: 15px; font-weight: 600; }
 button:disabled { opacity: .5; cursor: default; }
-.link-btn {
-  background: none; color: #6cb2ff; font-size: 13px; padding: 4px 0;
-}
+.link-btn { background: none; color: #6cb2ff; font-size: 13px; padding: 4px 0; }
 
 .controls { display: flex; align-items: center; gap: 12px; margin: 18px 0 8px; }
 .end { text-align: center; margin: 60px 0; }
 .end-title { font-size: 22px; font-weight: 700; margin-bottom: 4px; }
 
+/* 接力倒计时横条（后悔药）：贴底常驻醒目 */
+.relay-bar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
+  background: #1c222b; border-top: 2px solid #1f6feb;
+  padding: 12px 16px 16px; max-width: 720px; margin: 0 auto;
+}
+.relay-text { font-size: 16px; font-weight: 700; margin-bottom: 8px; }
+.relay-count {
+  height: 6px; background: #0f1216; border-radius: 3px; overflow: hidden; margin-bottom: 12px;
+}
+.relay-fill { height: 100%; width: 0; background: #ffd479; }
+.relay-btns { display: flex; gap: 10px; }
+.relay-btns .btn { flex: 1; }
+
 .modal {
-  position: fixed; inset: 0; z-index: 10;
+  position: fixed; inset: 0; z-index: 30;
   background: rgba(0, 0, 0, .72);
   display: flex; align-items: center; justify-content: center; padding: 20px;
 }
