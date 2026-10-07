@@ -35,7 +35,17 @@ grep -n 'MOCK_BATCHES' mock/fixture.js && hit "fixture 仍有批次揭示遗产"
 grep -n 'digg_total' app.js index.html mock/fixture.js && hit "出现真赞字段（digg_total）" || true
 grep -n 'comment\|收藏' app.js index.html | grep -vE ':\s*(//|\*)' && hit "出现评论/收藏展示" || true
 
-# 7) v3.1 起硬约束：禁 iframe 抖音、禁抓视频流地址、原帖双候选与接力标记在位
+# 7) v4.2 结构断言：编号可点续刷 / 继续=下一条 / 倒计时 1s / 发布时间 / 峰值标签统一
+grep -q 'data-relay' app.js || hit "编号可点（data-relay）缺失"
+grep -q 'jumpTo(R.cur > 0 ? R.cur + 1 : 1, true)' app.js || hit "继续=下一条 未落位"
+grep -q ': 1000' app.js || hit "倒计时 1000ms 未落位"
+grep -q 'fmtPub' app.js || hit "发布时间 fmtPub 缺失"
+grep -q 'pub_ts' mock/fixture.js || hit "fixture 缺 pub_ts"
+grep -q '🔥${fmtWan(v.score)}<span class="tag">峰值</span>' app.js || hit "🔥热度缺「·峰值」标签"
+grep -q '赞播比·峰值' app.js || hit "赞播比·峰值 缺失"
+grep -q '窗口赞\|👍.*峰值' app.js || hit "窗口赞·峰值 缺失"
+
+# 8) v3.1 起硬约束：禁 iframe 抖音、禁抓视频流地址、原帖双候选与接力标记在位
 grep -rniE '<iframe|iframe ' --include="*.html" --include="*.js" . \
   | grep -vE '不 iframe|frame-ancestors' && hit "出现 iframe" || true
 grep -q 'iesdouyin.com/share/video/' app.js || hit "缺 iesdouyin 原帖模板"

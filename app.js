@@ -47,11 +47,11 @@ const TOKEN_KEY = "hotsearch_token";   // localStorage 键名（存的是用户�
 // mock 模式：file:// 直接双击打开 或 显式 ?mock=1 → 全走 mock/fixture.js 假数据，
 // 不打任何真实请求（连 Worker 也不打）。Pages 线上 https 打开=真实 Worker。
 // mock 专属测试钩子：?setcur=N&relay=on 预设接力进度；?slow=1 倒计时放慢 15 秒；
-// ?hold=1 倒计时横条只显示不到点（均仅 mock 生效，供自动化验收点按钮）。
+// ?hold=1 倒计时横条只显示不到点；?mocktopup=1 补后场景（均仅 mock 生效）。
 const _q = new URLSearchParams(location.search);
 const MOCK = _q.has("mock") || location.protocol === "file:";
 
-const RELAY_COUNTDOWN_MS = (MOCK && _q.has("slow")) ? 15000 : 2000;   // 后悔药倒计时时长
+const RELAY_COUNTDOWN_MS = (MOCK && _q.has("slow")) ? 15000 : 1000;   // 后悔药倒计时时长（v4.2：2s→1s 可调常量；真机太紧回 1500）
 const RELAY_HOLD = MOCK && _q.has("hold");   // mock 验收钩子：倒计时横条只显示不到点
 
 let token = localStorage.getItem(TOKEN_KEY) || "";
@@ -127,6 +127,12 @@ function fmtDur(ms) {
   const s = Math.round((Number(ms) || 0) / 1000);
   return s >= 60 ? `${Math.floor(s / 60)}分${String(s % 60).padStart(2, "0")}秒` : `${s}秒`;
 }
+function fmtPub(ts) {
+  // 发布·YYYY-MM-DD（北京时间）；pub_ts 缺省/0 → 隐藏（返回空串）
+  ts = Number(ts) || 0;
+  if (ts <= 0) return "";
+  return "发布·" + new Date(ts * 1000 + 8 * 3600e3).toISOString().slice(0, 10);
+}
 function escapeHtml(s) {
   return String(s == null ? "" : s)
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
@@ -158,7 +164,8 @@ function renderHeader() {
   $("host-ies").classList.toggle("on", R.host === "iesdouyin");
   $("host-dy").classList.toggle("on", R.host === "douyin");
   const done = plan && items.length > 0 && R.cur >= items.length;
-  $("relay-start").textContent = R.cur > 0 ? `▶ 继续 #${R.cur}` : "▶ 开始连刷";
+  // v4.2：继续=从下一条（cur+1）起播，不重播刚看完的当前条；从头开始=点 #1 编号
+  $("relay-start").textContent = R.cur > 0 ? `▶ 继续 #${R.cur + 1}` : "▶ 开始连刷";
   $("relay-start").classList.toggle("hidden", !!done);
   $("relay-stop").classList.toggle("hidden", !R.on);
   syncTitle();
@@ -186,24 +193,32 @@ function renderDirectory() {
       const photo = v.is_photo ? " <span class='tag'>🖼图文</span>" : "";
       const watched = v.num === lastRet ? " <span class='tag hot'>刚看完</span>" : "";
       // v4.1+口径小修：指标全是池内免费数据（best_*=历史最高窗口值，标「峰值」），
-      // 非零才显示；赞播比=Worker 透传 best_ratio（不前端现算）；不显示真赞/评/转/藏
+      // 非零才显示；赞播比=Worker 透传 best_ratio；不显示真赞/评/转/藏。
+      // v4.2：四指标行加「发布·YYYY-MM-DD」（pub_ts 透传，缺省/0 隐藏）；
+      //       🔥热度标签补「·峰值」（四指标统一峰值口径）。
       const stats = [];
       if (Number(v.best_digg) > 0) stats.push(`👍${fmtWan(v.best_digg)}<span class="tag">峰值</span>`);
-      if (Number(v.score) > 0) stats.push(`🔥${fmtWan(v.score)}`);
+      if (Number(v.score) > 0) stats.push(`🔥${fmtWan(v.score)}<span class="tag">峰值</span>`);
       if (Number(v.play) > 0) stats.push(`▶${fmtWan(v.play)}<span class="tag">峰值</span>`);
       if (Number(v.ratio) > 0)
         stats.push(`赞播比·峰值 ${(Number(v.ratio) * 100).toFixed(1)}%`);
+      const pub = fmtPub(v.pub_ts);
       li.innerHTML =
-        `<div class="num">#${v.num}</div>` +
+        `<div class="num" data-relay="${v.num}" title="从这条开始连刷">#${v.num}</div>` +
         `<div class="body">` +
         `<span class="title">${escapeHtml(v.title) || "（无标题）"}</span>${photo}${watched}` +
         `<div class="dim meta">${escapeHtml(v.author) || "—"} · ${fmtDur(v.duration_ms)}` +
+        (pub ? ` · ${pub}` : "") +
         (stats.length ? ` · ${stats.join(" · ")}` : "") +
         `</div>` +
         `</div>`;
-      li.addEventListener("click", () => {
-        // 连刷模式点目录任意条目=从该条续刷；单看模式=纯跳转不写接力标记
-        jumpTo(v.num, R.on);
+      // v4.2：点编号=从该条起连刷（指针设为 N）；点标题/其余=单看（纯跳转不写接力标记）
+      li.querySelector(".num").addEventListener("click", (e) => {
+        e.stopPropagation();
+        jumpTo(v.num, true);
+      });
+      li.querySelector(".body").addEventListener("click", () => {
+        jumpTo(v.num, false);
       });
       ol.appendChild(li);
     }
@@ -291,6 +306,7 @@ async function boot() {
     // mock 测试钩子（仅 mock 生效）：?setcur=N&relay=on 预设接力进度
     if (_q.has("setcur")) { R.cur = Number(_q.get("setcur")) || 0; }
     if (_q.get("relay") === "on") { R.on = true; }
+    if (_q.get("relay") === "off") { R.on = false; }
     if (_q.has("setcur") || _q.get("relay") === "on") {
       R.pending = 0; R.date = MOCK_STATE.date;
     }
@@ -337,7 +353,7 @@ $("host-dy").addEventListener("click", () => { R.host = "douyin"; renderHeader()
 
 $("relay-start").addEventListener("click", () => {
   if (!plan || !plan.live) return;
-  jumpTo(Math.max(R.cur, 1), true);
+  jumpTo(R.cur > 0 ? R.cur + 1 : 1, true);   // v4.2：从下一条起播，不重播当前条
 });
 $("relay-stop").addEventListener("click", () => {
   R.on = false; R.pending = 0;
