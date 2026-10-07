@@ -77,8 +77,9 @@ const R = {
   set date(v) { localStorage.setItem("hs_relay_date", v); },
   get host() { return localStorage.getItem("hs_post_host") || "iesdouyin"; },
   set host(v) { localStorage.setItem("hs_post_host", v); },
-  get ed() { return localStorage.getItem("hs_edition") || ""; },   // 推次选择器（指令块 E；""=全部）
-  set ed(v) { localStorage.setItem("hs_edition", v || ""); },
+  get ed() { return localStorage.getItem("hs_edition"); },   // 推次选择器（指令块 E 修订：null=未手动选 → 默认最新版；"all"=全部）
+  set ed(v) { v == null ? localStorage.removeItem("hs_edition")
+                        : localStorage.setItem("hs_edition", v); },
 };
 
 // 系统日（与 hotsearch/batchplan.py、Worker systemDay 同规则）：<06:01 归前一天
@@ -153,9 +154,20 @@ function escapeHtml(s) {
 }
 
 // ---------- 版次数据 ----------
-// 推次选择器（指令块 E）：R.ed="" = 全部；选中某版=只显示该版。连刷范围=当前显示集合。
+// 推次选择器（指令块 E 修订）：有效选择=effectiveEd()——
+// 未手动选（无记忆）→ 当日最新一版；手动选「全部」→ 全量；手动选某版 → 该版；
+// 所选版不存在（日清/跨天/?date= 考古）→ 自动回落最新一版（不是全部）。
+function effectiveEd() {
+  if (!editions.length) return "all";
+  const v = R.ed;
+  if (v === "all") return "all";
+  if (v && editions.some((e) => String(e.edition_no) === v)) return v;
+  return String(editions[editions.length - 1].edition_no);
+}
 function viewEditions() {
-  return R.ed ? editions.filter((e) => String(e.edition_no) === R.ed) : editions;
+  const eff = effectiveEd();
+  return eff === "all" ? editions
+                       : editions.filter((e) => String(e.edition_no) === eff);
 }
 function latestEdition() {
   const v = viewEditions();
@@ -206,12 +218,12 @@ function syncTitle() {
 function renderHeader() {
   $("date").textContent = plan && plan.date ? `· ${plan.date}` : "";
   const veds = viewEditions();
+  const eff = effectiveEd();
   if (plan && plan.live && editions.length) {
-    const last = latestEdition();
     $("overview").textContent =
       `当日已推 ${editions.length} 版 · 最新版 第${editions[editions.length - 1].edition_no}推` +
       ` ${(editions[editions.length - 1].pushed_at || "").slice(11, 16)}` +
-      (R.ed ? ` · 只看第${R.ed}推` : "") + ` · 今日全免费`;
+      (eff !== "all" ? ` · 只看第${eff}推` : "") + ` · 今日全免费`;
     const hit = curPos();
     $("progress").textContent = hit
       ? `已刷到 第${hit.edition.edition_no}推 #${hit.item.num}/${hit.edition.items.length}`
@@ -226,18 +238,19 @@ function renderHeader() {
   $("cd-1").classList.toggle("on", cd === 1000);
   $("cd-15").classList.toggle("on", cd === 1500);
   $("cd-2").classList.toggle("on", cd === 2000);
-  // 推次选择器（指令块 E）：「全部」+ 当日各版（动态生成，带 HH:MM）；与倒计时同款
+  // 推次选择器（指令块 E 修订）：推次按钮在前（按时间序），「全部」备选排最后；
+  // 高亮=有效选择（未手动选=最新版）
   const sw = $("ed-switch");
   sw.innerHTML = "";
-  const opts = [["", "全部"]].concat(
-    editions.map((e) => [String(e.edition_no),
-                         `第${e.edition_no}推 ${(e.pushed_at || "").slice(11, 16)}`]));
+  const opts = editions
+    .map((e) => [String(e.edition_no), `第${e.edition_no}推 ${(e.pushed_at || "").slice(11, 16)}`])
+    .concat([["all", "全部"]]);
   for (const [val, label] of opts) {
     const b = document.createElement("button");
     b.className = "link-btn";
-    b.id = `ed-${val || "all"}`;
+    b.id = val === "all" ? "ed-all" : `ed-${val}`;
     b.textContent = label;
-    b.classList.toggle("on", R.ed === val);
+    b.classList.toggle("on", eff === val);
     b.addEventListener("click", () => { R.ed = val; boot(); });
     sw.appendChild(b);
   }
@@ -320,8 +333,8 @@ function showEnd() {
   $("directory").innerHTML = "";
   $("end-page").classList.remove("hidden");
   $("end-recap").textContent = plan
-    ? (R.ed
-        ? `第 ${R.ed} 推刷完 · 想继续到群里发「补」，补完回来刷新本页接着看`
+    ? (effectiveEd() !== "all"
+        ? `第 ${effectiveEd()} 推刷完 · 想继续到群里发「补」，补完回来刷新本页接着看`
         : `当日已推 ${editions.length} 版 · 全部刷完 · 想继续到群里发「补」，补完回来刷新本页接着看`)
     : "";
   renderHeader();
@@ -415,8 +428,8 @@ async function boot() {
   if (R.date && R.date !== plan.date) { R.on = false; R.vid = ""; R.pendingVid = ""; }
   R.date = plan.date;
   editions = Array.isArray(plan.editions) ? plan.editions : [];
-  // 推次选择器回落（指令块 E）：所选版不存在（日清后/跨天/?date= 考古）→ 自动回落「全部」
-  if (R.ed && !editions.some((e) => String(e.edition_no) === R.ed)) R.ed = "";
+  // 推次回落（指令块 E 修订）：所选版不存在 → effectiveEd() 内自愈回落「最新一版」，
+  // 不回写存储（用户手动选择留档，版回来了自动恢复）
   booted = true;
   renderHeader();
   renderDirectory();
