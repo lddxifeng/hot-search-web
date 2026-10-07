@@ -218,7 +218,9 @@ function renderDirectory() {
         `<div class="num" data-relay="${v.num}" title="从这条开始连刷">#${v.num}</div>` +
         `<div class="body">` +
         `<span class="title">${escapeHtml(v.title) || "（无标题）"}</span>${photo}${watched}` +
-        `<div class="dim meta">${escapeHtml(v.author) || "—"} · ${fmtDur(v.duration_ms)}` +
+        `<div class="dim meta">${escapeHtml(v.author) || "—"}` +
+        (Number(v.fans) > 0 ? ` · 粉丝·${fmtWan(v.fans)}` : "") +
+        ` · ${fmtDur(v.duration_ms)}` +
         (pub ? ` · ${pub}` : "") +
         (stats.length ? ` · ${stats.join(" · ")}` : "") +
         `</div>` +
