@@ -1,31 +1,28 @@
 "use strict";
-/* 热搜连刷 · 原帖接力连刷（网页 v4.1，2026-10-07 拍板）
+/* 热搜连刷 · 原帖接力连刷（网页 v4 版次制，2026-10-07 拍板 C）
  *
  * 定位：本站只做「目录 + 接力导航」，视频流走抖音原帖页（永久免费、永不 403、
  * 原帖级清晰度）。不做沉浸式播放器、不 iframe（抖音 frame-ancestors 实测封死）、
  * 不抓视频流地址（临时链实测几分钟即烂）、不做播完自动跳转、不下载视频本体。
  *
- * v4 去真赞化（机主 2026-10-07 拍板）：JIT 真赞揭示整体退役。网页不再调用
- * /api/batch，全站不出现「揭示/解锁/花费」概念；整日计划通过 /api/state 一次读取
- * 全量展示。v4.1 追加：每条显示编号/标题/作者/时长/窗口赞/热度/窗口播放/赞播比——
- * 全是池内免费数据（best_*=历史最高窗口值，页面标「峰值」），非零才显示；不显示
- * 真赞/评/转/藏。结束页文案=「今日正推
- * N 条全部刷完 · 想继续到群里发『补』，补完回来刷新本页接着看」。补后接力：每次打开/
- * 刷新重读 /api/state，补批续号条目自然列出，进度记忆与接力自然延续（无专门补模式）。
+ * 版次制：一推=一版报纸。目录按版分区（第 N 推 · HH:MM），各版编号各自 #1 起；
+ * 数据=Worker /api/state 按 editions 一次全量返回（lean 免费字段；无真赞/评/转/藏）。
+ * 补后接力：每次打开/刷新重读 /api/state，补批续挂末版尾部自然列出。
+ * 系统日=北京时间 06:01 切（batchplan/Worker/本页三处同规则）：<06:01 归前一天，
+ * 网页仍显示昨天最后一版（防刷一半被清）；06:01 后自动切新系统日（空目录等首推）。
+ * ?date= 考古后门透传给 Worker（缺则补）。
  *
- * 接力机制（后悔药，与 v3.1 一字不动）：逻辑只靠 localStorage 标记驱动（bfcache
- * 与普通重载两条返回路径都走 pageshow → 同一段标记判断）——
- *   hs_relay    "on"/"off"   连刷开关
- *   hs_cur      当前序号（最后跳出/要续刷的编号；0=未开始）
- *   hs_pending  跳出去看的那条编号（返回目录=接力信号；处理即清，防 F5 重触发）
- *   hs_date     标记所属当日（跨天自动作废）
- *   hs_host     原帖域名偏好（iesdouyin / douyin；真机 A/B 后可换默认）
- * 连刷循环：跳出看 #N（pending=N）→ 浏览器返回（pageshow）→ relay=on 且 pending=N
- *   → 倒计时横条「即将播放 #N+1」2 秒（↺ 重看 #N / ⏸ 暂停）→ 到点无操作自动跳 #N+1；
- *   #N=计划末条 → 结束页「今日 N 条全部刷完」。
- *
- * 单看模式（relay=off）：点条目跳原帖，返回后不自动跳（不写任何接力标记）。
- * 连刷模式（relay=on）：点目录任意条目=从该条续刷（cur 改为该条）。
+ * 接力机制（后悔药）：指针按 vid 锚定（新版插入/日清切换不漂移），
+ * 逻辑只靠 localStorage 标记驱动（bfcache 与普通重载都走 pageshow）——
+ *   hs_relay      "on"/"off"   连刷开关
+ *   hs_relay_vid  当前条 vid（最后跳出/要续刷的）
+ *   hs_pending_vid 跳出去看的那条 vid（返回目录=接力信号；处理即清，防 F5 重触发）
+ *   hs_relay_date 标记所属系统日（跨系统日自动作废）
+ *   hs_host       原帖域名偏好（iesdouyin / douyin）
+ * 连刷循环：跳出看 X（pending=X.vid）→ 浏览器返回（pageshow）→ relay=on 且 pending 在
+ *   → 倒计时横条「即将播放 第E推 #n+1」（↺ 重看 / ⏸ 暂停）→ 到点自动接下一条
+ *   （同版尾部→下一版首条；最后一版末尾 → 结束页）。
+ * 单看模式（relay=off）：点标题/条目跳原帖，返回后不自动跳（不写任何接力标记）。
  *
  * 暗号（拍板 e'）：永不硬编码；首次弹框手粘，存 localStorage，请求带
  * X-Hotsearch-Token 头。网页无图文区为永久拍板决策（2026-10-06）：偶遇图文帖
@@ -33,7 +30,7 @@
  */
 
 // === 配置项（全页唯一）：Worker 地址。地址公开属正常——页面与源码本就公开，
-//     真正的闸门是暗号 + 日 $0.30 熔断 + 每批 ≤10 + 402 熔断（Worker 侧四条保险） ===
+//     真正的闸门是暗号（Worker 侧校验） ===
 const WORKER_BASE = "https://bot.hotsearch-xifeng.top";   // hotsearch-feishu-bot 绑定的自定义域名
 
 // 原帖地址候选（aweme_id 拼接；真机 A/B 拍默认=弹窗少者，另一个留设置切换）：
@@ -46,13 +43,12 @@ const TOKEN_KEY = "hotsearch_token";   // localStorage 键名（存的是用户�
 
 // mock 模式：file:// 直接双击打开 或 显式 ?mock=1 → 全走 mock/fixture.js 假数据，
 // 不打任何真实请求（连 Worker 也不打）。Pages 线上 https 打开=真实 Worker。
-// mock 专属测试钩子：?setcur=N&relay=on/off 预设接力进度；?slow=1 倒计时放慢 15 秒；
-// ?hold=1 倒计时横条只显示不到点；?mocktopup=1 补后场景（均仅 mock 生效）。
+// mock 专属测试钩子：?setvid=eNvNN 预设指针 vid；?relay=on/off；?slow=1 倒计时放慢 15 秒；
+// ?hold=1 横条只显示不到点；?mocktopup=1 补后场景（均仅 mock 生效）。
 const _q = new URLSearchParams(location.search);
 const MOCK = _q.has("mock") || location.protocol === "file:";
 
-// 后悔药倒计时（v4.2 拍板：头部三档可调 1s/1.5s/2s，localStorage 持久化，默认 1s；
-// 真机太紧再回 1.5s；mock 慢速档仅供自动化验收）
+// 后悔药倒计时（头部三档可调 1s/1.5s/2s，localStorage 持久化，默认 1s）
 function countdownMs() {
   if (MOCK && _q.has("slow")) return 15000;
   const v = Number(localStorage.getItem("hs_countdown_ms"));
@@ -61,44 +57,52 @@ function countdownMs() {
 const RELAY_HOLD = MOCK && _q.has("hold");   // mock 验收钩子：倒计时横条只显示不到点
 
 let token = localStorage.getItem(TOKEN_KEY) || "";
-let plan = null;                 // /api/state 回包（含 items 全量计划）
-let items = [];                  // 当日全部计划条目（一次读取，无揭示概念）
+let plan = null;                 // /api/state 回包 {date, today, live, editions[]}
+let editions = [];               // 版次序列（含 lean items）
 let booted = false;
-let lastRet = 0;                 // 本次返回刚看完的编号（倒计时横条的重看目标）
+let lastRet = null;              // 本次返回刚看完的条目（倒计时横条的重看目标）
 let countdownTimer = null;
 
 const $ = (id) => document.getElementById(id);
 
-// ---------- 接力标记（只读存储驱动） ----------
+// ---------- 接力标记（只读存储驱动，vid 锚定） ----------
 const R = {
   get on() { return localStorage.getItem("hs_relay") === "on"; },
   set on(v) { localStorage.setItem("hs_relay", v ? "on" : "off"); },
-  get cur() { return Number(localStorage.getItem("hs_relay_cur") || 0); },
-  set cur(v) { localStorage.setItem("hs_relay_cur", String(v)); },
-  get pending() { return Number(localStorage.getItem("hs_relay_pending") || 0); },
-  set pending(v) { localStorage.setItem("hs_relay_pending", String(v)); },
+  get vid() { return localStorage.getItem("hs_relay_vid") || ""; },
+  set vid(v) { localStorage.setItem("hs_relay_vid", v || ""); },
+  get pendingVid() { return localStorage.getItem("hs_pending_vid") || ""; },
+  set pendingVid(v) { localStorage.setItem("hs_pending_vid", v || ""); },
   get date() { return localStorage.getItem("hs_relay_date") || ""; },
   set date(v) { localStorage.setItem("hs_relay_date", v); },
   get host() { return localStorage.getItem("hs_post_host") || "iesdouyin"; },
   set host(v) { localStorage.setItem("hs_post_host", v); },
 };
 
-function postUrl(v) {
-  if (MOCK) return `mock/post.html?n=${v.num}&vid=${encodeURIComponent(v.vid)}`;
-  return (POST_HOSTS[R.host] || POST_HOSTS.iesdouyin)(v.vid);
-}
-
-// ---------- mock 引擎（v4：只认 /api/state；无 /api/batch 路由——调了就露馅） ----------
-// ?mocktopup=1 → 补后场景（71 条：正推 61 + 补批 10，编号 #62~#71 接续）
-function mockApi(path) {
-  if (path === "/api/state") {
-    return Promise.resolve(Object.assign({ ok: true, live: true },
-      structuredClone(_q.has("mocktopup") ? MOCK_STATE_TOPUP : MOCK_STATE)));
+// 系统日（与 hotsearch/batchplan.py、Worker systemDay 同规则）：<06:01 归前一天
+function systemDay() {
+  const n = new Date(Date.now() + 8 * 3600e3);
+  if (n.getUTCHours() < 6 || (n.getUTCHours() === 6 && n.getUTCMinutes() < 1)) {
+    return new Date(n.getTime() - 86400e3).toISOString().slice(0, 10);
   }
-  return Promise.resolve({ ok: false, reason: "not_found" });   // v4 没有第二个端点
+  return n.toISOString().slice(0, 10);
 }
 
-// ---------- 真实 API（v4 只有 GET /api/state 一条路；带暗号头） ----------
+function postUrl(item) {
+  if (MOCK) return `mock/post.html?vid=${encodeURIComponent(item.vid)}`;
+  return (POST_HOSTS[R.host] || POST_HOSTS.iesdouyin)(item.vid);
+}
+
+// ---------- mock 引擎（v4 版次制：只认 /api/state；无 /api/batch 路由） ----------
+function mockApi(path) {
+  if (path.startsWith("/api/state")) {
+    return Promise.resolve(structuredClone(
+      _q.has("mocktopup") ? MOCK_STATE_TOPUP : MOCK_STATE));
+  }
+  return Promise.resolve({ ok: false, reason: "not_found" });
+}
+
+// ---------- 真实 API（带暗号头；?date= 考古透传） ----------
 async function api(path) {
   if (MOCK) return mockApi(path);
   const r = await fetch(WORKER_BASE + path, {
@@ -144,40 +148,82 @@ function escapeHtml(s) {
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
-function syncTitle() {
-  // document.title 实时同步「#N/总数 · 热搜连刷」（N=当前序号；分母含补批续号；未开始只显站名）
-  document.title = (plan && R.cur > 0 && items.length)
-    ? `#${R.cur}/${items.length} · 热搜连刷`
-    : "热搜连刷";
+
+// ---------- 版次数据 ----------
+function latestEdition() { return editions.length ? editions[editions.length - 1] : null; }
+function latestItem() {
+  const ed = latestEdition();
+  return ed && ed.items.length ? ed.items[ed.items.length - 1] : null;
 }
-function findItem(num) {
-  return items.find((v) => v.num === num) || null;
+function findItem(vid) {
+  // 按 vid 锚定定位：返回 {edition, idx, item} 或 null（新版插入/日清切换不漂移）
+  for (const ed of editions) {
+    const idx = ed.items.findIndex((v) => v.vid === vid);
+    if (idx >= 0) return { edition: ed, idx, item: ed.items[idx] };
+  }
+  return null;
+}
+function nextAfter(vid) {
+  // 下一条：同版 idx+1；版尾 → 下一版首条；最后一版末尾 → null（结束页）
+  const hit = findItem(vid);
+  if (!hit) return null;
+  const { edition, idx } = hit;
+  if (idx + 1 < edition.items.length) {
+    return { edition, idx: idx + 1, item: edition.items[idx + 1] };
+  }
+  const eIdx = editions.indexOf(edition);
+  if (eIdx >= 0 && eIdx + 1 < editions.length) {
+    const nEd = editions[eIdx + 1];
+    if (nEd.items.length) return { edition: nEd, idx: 0, item: nEd.items[0] };
+  }
+  return null;
+}
+function curPos() {
+  // 当前指针位置（vid 锚定）；找不到（跨系统日/版已归档）→ null
+  return R.vid ? findItem(R.vid) : null;
+}
+
+function syncTitle() {
+  // document.title 实时同步「第E推 #n/N · 热搜连刷」（vid 定位；未开始只显站名）
+  const hit = curPos();
+  document.title = (plan && hit)
+    ? `第${hit.edition.edition_no}推 #${hit.item.num}/${hit.edition.items.length} · 热搜连刷`
+    : "热搜连刷";
 }
 
 // ---------- 渲染 ----------
 function renderHeader() {
   $("date").textContent = plan && plan.date ? `· ${plan.date}` : "";
-  if (plan && plan.live) {
-    const extra = items.length - (plan.total_items || 0);   // 补批续号条目（补后接力：重读 state 自然多出）
+  if (plan && plan.live && editions.length) {
+    const last = latestEdition();
     $("overview").textContent =
-      `当日计划 ${plan.total_items} 条（总时长约 ${plan.total_minutes} 分钟）` +
-      (extra > 0 ? ` + 补 ${extra} 条` : "") + " · 今日全免费";
-    $("progress").textContent = `已刷到 #${R.cur}/${items.length}`;
+      `当日已推 ${editions.length} 版 · 最新版 第${last.edition_no}推 ${(last.pushed_at || "").slice(11, 16)}` +
+      ` · 今日全免费`;
+    const hit = curPos();
+    $("progress").textContent = hit
+      ? `已刷到 第${hit.edition.edition_no}推 #${hit.item.num}/${hit.edition.items.length}`
+      : "未开始";
   } else {
-    $("overview").textContent = "";
+    $("overview").textContent = plan && !plan.live ? "今日还没有正推（等第一版）" : "";
     $("progress").textContent = "";
   }
   $("host-ies").classList.toggle("on", R.host === "iesdouyin");
   $("host-dy").classList.toggle("on", R.host === "douyin");
-  // 倒计时三档开关高亮（v4.2 W2）
   const cd = countdownMs();
   $("cd-1").classList.toggle("on", cd === 1000);
   $("cd-15").classList.toggle("on", cd === 1500);
   $("cd-2").classList.toggle("on", cd === 2000);
-  const done = plan && items.length > 0 && R.cur >= items.length;
-  // v4.2：继续=从下一条（cur+1）起播，不重播刚看完的当前条；从头开始=点 #1 编号
-  $("relay-start").textContent = R.cur > 0 ? `▶ 继续 #${R.cur + 1}` : "▶ 开始连刷";
-  $("relay-start").classList.toggle("hidden", !!done);
+  // 继续按钮：下一条（vid 锚定）；无指针=从最新版 #1 开始
+  const nxt = curPos() ? nextAfter(R.vid) : null;
+  const start = latestItem() && latestEdition().items[0];
+  const done = plan && plan.live && editions.length && !nxt && curPos() &&
+               R.vid === (latestItem() || {}).vid;
+  if (nxt) {
+    $("relay-start").textContent = `▶ 继续 第${nxt.edition.edition_no}推 #${nxt.item.num}`;
+  } else {
+    $("relay-start").textContent = R.vid ? "▶ 开始连刷" : "▶ 开始连刷";
+  }
+  $("relay-start").classList.toggle("hidden", !plan || !plan.live || !!done);
   $("relay-stop").classList.toggle("hidden", !R.on);
   syncTitle();
 }
@@ -185,28 +231,23 @@ function renderHeader() {
 function renderDirectory() {
   const root = $("directory");
   root.innerHTML = "";
-  // 10 条一个视觉分区（第 1 区 #1–#10…）——纯视觉分区，无「揭示」概念
-  for (let s = 0; s * 10 < items.length; s++) {
+  for (const ed of editions) {
     const sec = document.createElement("section");
     sec.className = "group";
-    const zone = items.slice(s * 10, s * 10 + 10);
     const h = document.createElement("div");
     h.className = "group-label";
-    h.textContent = `第 ${s + 1} 区 · #${zone[0].num}–#${zone[zone.length - 1].num}`;
+    // 版分区标题（拍板 C）：第 N 推 · HH:MM（各版编号各自 #1 起）
+    h.textContent = `第 ${ed.edition_no} 推 · ${(ed.pushed_at || "").slice(11, 16)}`;
     sec.appendChild(h);
     const ol = document.createElement("ol");
     ol.className = "list";
-    for (const v of zone) {
+    for (const v of ed.items) {
       const li = document.createElement("li");
       li.className = "card";
-      li.id = `item-${v.num}`;
-      li.dataset.num = v.num;
+      li.id = `item-${v.vid}`;
+      li.dataset.vid = v.vid;
       const photo = v.is_photo ? " <span class='tag'>🖼图文</span>" : "";
-      const watched = v.num === lastRet ? " <span class='tag hot'>刚看完</span>" : "";
-      // v4.1+口径小修：指标全是池内免费数据（best_*=历史最高窗口值，标「峰值」），
-      // 非零才显示；赞播比=Worker 透传 best_ratio；不显示真赞/评/转/藏。
-      // v4.2：四指标行加「发布·YYYY-MM-DD」（pub_ts 透传，缺省/0 隐藏）；
-      //       🔥热度标签补「·峰值」（四指标统一峰值口径）。
+      const watched = lastRet && v.vid === lastRet.vid ? " <span class='tag hot'>刚看完</span>" : "";
       const stats = [];
       if (Number(v.best_digg) > 0) stats.push(`👍${fmtWan(v.best_digg)}<span class="tag">峰值</span>`);
       if (Number(v.score) > 0) stats.push(`🔥${fmtWan(v.score)}<span class="tag">峰值</span>`);
@@ -215,7 +256,7 @@ function renderDirectory() {
         stats.push(`赞播比·峰值 ${(Number(v.ratio) * 100).toFixed(1)}%`);
       const pub = fmtPub(v.pub_ts);
       li.innerHTML =
-        `<div class="num" data-relay="${v.num}" title="从这条开始连刷">#${v.num}</div>` +
+        `<div class="num" data-relay="${v.vid}" title="从这条开始连刷">#${v.num}</div>` +
         `<div class="body">` +
         `<span class="title">${escapeHtml(v.title) || "（无标题）"}</span>${photo}${watched}` +
         `<div class="dim meta">${escapeHtml(v.author) || "—"}` +
@@ -225,13 +266,13 @@ function renderDirectory() {
         (stats.length ? ` · ${stats.join(" · ")}` : "") +
         `</div>` +
         `</div>`;
-      // v4.2：点编号=从该条起连刷（指针设为 N）；点标题/其余=单看（纯跳转不写接力标记）
+      // 点编号=从该条起连刷（vid 锚定）；点标题/其余=单看（纯跳转不写接力标记）
       li.querySelector(".num").addEventListener("click", (e) => {
         e.stopPropagation();
-        jumpTo(v.num, true);
+        jumpTo(v, true);
       });
       li.querySelector(".body").addEventListener("click", () => {
-        jumpTo(v.num, false);
+        jumpTo(v, false);
       });
       ol.appendChild(li);
     }
@@ -247,28 +288,27 @@ function notice(text) {
 
 function showEnd() {
   R.on = false;
-  R.pending = 0;
+  R.pendingVid = "";
   hideRelayBar();
   $("directory").innerHTML = "";
   $("end-page").classList.remove("hidden");
   $("end-recap").textContent = plan
-    ? `今日正推 ${plan.total_items} 条全部刷完 · 想继续到群里发「补」，补完回来刷新本页接着看`
+    ? `当日已推 ${editions.length} 版 · 全部刷完 · 想继续到群里发「补」，补完回来刷新本页接着看`
     : "";
   renderHeader();
 }
 
-// ---------- 接力核心 ----------
-function jumpTo(num, relaying) {
-  const v = findItem(num);
-  if (!v) return;
+// ---------- 接力核心（vid 锚定） ----------
+function jumpTo(item, relaying) {
+  if (!item) return;
   if (relaying) {
     R.on = true;
-    R.cur = num;
-    R.pending = num;
+    R.vid = item.vid;
+    R.pendingVid = item.vid;
     R.date = plan ? plan.date : R.date;
   }
   syncTitle();
-  location.href = postUrl(v);   // 同标签跳原帖（不 iframe、不抓流）
+  location.href = postUrl(item);   // 同标签跳原帖（不 iframe、不抓流）
 }
 
 function hideRelayBar() {
@@ -282,11 +322,11 @@ function cancelCountdown() {
 }
 
 function startCountdown(nxt) {
-  // 后悔药横条：倒计时进度条 + ↺重看 #N / ⏸暂停；到点无操作自动接 #N+1
+  // 后悔药横条：倒计时进度条 + ↺重看 / ⏸暂停；到点无操作自动接下一条
   cancelCountdown();
   const ms = countdownMs();             // 读存储（头部三档开关即时生效）
-  $("relay-text").textContent = `即将播放 #${nxt}/${items.length}`;   // 分母含补批续号（补后接力）
-  $("relay-replay").textContent = `↺ 重看 #${lastRet}`;
+  $("relay-text").textContent = `即将播放 第${nxt.edition.edition_no}推 #${nxt.item.num}`;
+  $("relay-replay").textContent = lastRet ? `↺ 重看 第${lastRet.edition.edition_no}推 #${lastRet.item.num}` : "";
   $("relay-bar").classList.remove("hidden");
   requestAnimationFrame(() => {
     $("relay-fill").style.transition = `width ${ms}ms linear`;
@@ -295,50 +335,57 @@ function startCountdown(nxt) {
   countdownTimer = RELAY_HOLD ? null : setTimeout(() => {
     countdownTimer = null;
     hideRelayBar();
-    jumpTo(nxt, true);
+    jumpTo(nxt.item, true);
   }, ms);
 }
 
 // 返回目录（pageshow 统一入口：bfcache 恢复与普通重载都走这里）
 function onReturn() {
-  const n = R.pending;
-  if (!R.on || !n || !plan || !plan.live) return;
-  if (R.date && plan.date && R.date !== plan.date) { R.on = false; R.pending = 0; renderHeader(); return; }
-  R.pending = 0;                    // 处理即清：F5/再度往返不重触发
-  lastRet = n;
-  renderDirectory();                // 「刚看完」高亮
-  const el = $(`item-${n}`);
+  const vid = R.pendingVid;
+  if (!R.on || !vid || !plan || !plan.live) return;
+  if (R.date && plan.date && R.date !== plan.date) {   // 跨系统日：标记作废
+    R.on = false; R.pendingVid = ""; R.vid = "";
+    renderHeader();
+    return;
+  }
+  R.pendingVid = "";                    // 处理即清：F5/再度往返不重触发
+  const hit = findItem(vid);
+  if (!hit) { renderDirectory(); return; }   // vid 已不在目录（版已归档）→ 静候，不跳
+  lastRet = hit;
+  renderDirectory();                    // 「刚看完」高亮
+  const el = $(`item-${vid}`);
   if (el) { el.classList.add("just-watched"); el.scrollIntoView({ block: "center" }); }
-  if (n >= items.length) { showEnd(); return; }              // 刷完全部（含补批续号条目）
-  startCountdown(n + 1);            // v4：无揭示概念，直接接续
+  const nxt = nextAfter(vid);
+  if (!nxt) { showEnd(); return; }      // 最后一版末尾 → 结束页
+  startCountdown(nxt);
 }
 
 // ---------- 启动 ----------
 async function boot() {
   if (MOCK) {
     $("mock-banner").classList.remove("hidden");
-    // mock 测试钩子（仅 mock 生效）：?setcur=N&relay=on 预设接力进度
-    if (_q.has("setcur")) { R.cur = Number(_q.get("setcur")) || 0; }
+    // mock 测试钩子（仅 mock 生效）：?setvid=eNvNN 预设指针；?relay=on/off
+    if (_q.has("setvid")) { R.vid = _q.get("setvid") || ""; }
     if (_q.get("relay") === "on") { R.on = true; }
     if (_q.get("relay") === "off") { R.on = false; }
-    if (_q.has("setcur") || _q.get("relay") === "on") {
-      R.pending = 0; R.date = MOCK_STATE.date;
+    if (_q.has("setvid") || _q.get("relay") === "on") {
+      R.pendingVid = ""; R.date = MOCK_STATE.date;
     }
   }
   if (!token) { showTokenModal(); return; }
   hideTokenModal();
   try {
-    plan = await api("/api/state");
+    plan = await api("/api/state" + (_q.get("date") ? `?date=${encodeURIComponent(_q.get("date"))}` : ""));
   } catch (e) {
     if (String(e && e.message) !== "bad_token") notice("网络异常，请刷新重试");
     return;
   }
   if (!plan.ok) { notice(plan.text || "状态读取失败，请稍后再试"); return; }
-  if (!plan.live) { notice("今日还没有正推计划，请先在群里发「推」生成今日计划。"); return; }
-  // 跨天作废旧接力进度
-  if (R.date && R.date !== plan.date) { R.on = false; R.cur = 0; R.pending = 0; }
+  if (!plan.live) { notice("今日还没有正推（等第一版）。请先在群里发「推」。"); return; }
+  // 跨系统日作废旧接力进度
+  if (R.date && R.date !== plan.date) { R.on = false; R.vid = ""; R.pendingVid = ""; }
   R.date = plan.date;
-  items = Array.isArray(plan.items) ? plan.items : [];
+  editions = Array.isArray(plan.editions) ? plan.editions : [];
   booted = true;
   renderHeader();
   renderDirectory();
@@ -374,20 +421,22 @@ for (const [id, ms] of [["cd-1", 1000], ["cd-15", 1500], ["cd-2", 2000]]) {
 
 $("relay-start").addEventListener("click", () => {
   if (!plan || !plan.live) return;
-  jumpTo(R.cur > 0 ? R.cur + 1 : 1, true);   // v4.2：从下一条起播，不重播当前条
+  const nxt = curPos() ? nextAfter(R.vid) : null;
+  const first = latestEdition() && latestEdition().items[0];
+  jumpTo(nxt ? nxt.item : first, true);   // 继续=下一条；无指针=从最新版 #1 开始
 });
 $("relay-stop").addEventListener("click", () => {
-  R.on = false; R.pending = 0;
+  R.on = false; R.pendingVid = "";
   cancelCountdown(); hideRelayBar();
   renderHeader();
 });
 $("relay-replay").addEventListener("click", () => {
   cancelCountdown(); hideRelayBar();
-  jumpTo(lastRet, true);            // 重看 #N（pending=N 重落，返回后再接 #N+1）
+  if (lastRet) jumpTo(lastRet.item, true);   // 重看（pending 重落，返回后再接下一条）
 });
 $("relay-pause").addEventListener("click", () => {
   cancelCountdown(); hideRelayBar();
-  R.on = false;                     // 暂停：停在目录，进度（cur）保留可续
+  R.on = false;                     // 暂停：停在目录，进度（vid）保留可续
   renderHeader();
 });
 

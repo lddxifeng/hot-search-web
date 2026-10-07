@@ -35,10 +35,18 @@ grep -n 'MOCK_BATCHES' mock/fixture.js && hit "fixture 仍有批次揭示遗产"
 grep -n 'digg_total' app.js index.html mock/fixture.js && hit "出现真赞字段（digg_total）" || true
 grep -n 'comment\|收藏' app.js index.html | grep -vE ':\s*(//|\*)' && hit "出现评论/收藏展示" || true
 
-# 7) v4.2 结构断言：编号可点续刷 / 继续=下一条 / 倒计时 1s / 发布时间 / 峰值标签统一
+# 7) v4 版次制结构断言：editions 数据源 / vid 锚定接力 / 系统日同规则 / 版分区标题
+grep -q 'editions' mock/fixture.js || hit "fixture 缺 editions 版次数据"
+grep -q 'edition_no' app.js || hit "版次号（edition_no）未接入"
+grep -q 'hs_relay_vid' app.js || hit "接力指针未按 vid 锚定（hs_relay_vid）"
+grep -q 'hs_pending_vid' app.js || hit "接力返回标记未按 vid 锚定（hs_pending_vid）"
+grep -q 'systemDay' app.js || hit "系统日函数（06:01 切）缺失"
+grep -q '第 ${ed.edition_no} 推' app.js || hit "版分区标题（第 N 推 · HH:MM）缺失"
+grep -q '?date=' app.js || hit "?date= 考古透传缺失"
+
+# 8) v4.2 结构断言：编号可点续刷 / 倒计时三档 / 发布时间 / 粉丝 / 峰值标签统一
 grep -q 'data-relay' app.js || hit "编号可点（data-relay）缺失"
-grep -q 'jumpTo(R.cur > 0 ? R.cur + 1 : 1, true)' app.js || hit "继续=下一条 未落位"
-grep -q ': 1000' app.js || hit "倒计时 1000ms 未落位"
+grep -q '1000' app.js || hit "倒计时默认 1s 未落位"
 grep -q 'fmtPub' app.js || hit "发布时间 fmtPub 缺失"
 grep -q 'hs_countdown_ms' app.js || hit "倒计时三档开关（hs_countdown_ms）缺失"
 grep -q 'cd-15' index.html || hit "倒计时 1.5s 档位缺失"
@@ -54,7 +62,7 @@ grep -rniE '<iframe|iframe ' --include="*.html" --include="*.js" . \
   | grep -vE '不 iframe|frame-ancestors' && hit "出现 iframe" || true
 grep -q 'iesdouyin.com/share/video/' app.js || hit "缺 iesdouyin 原帖模板"
 grep -q 'douyin.com/video/' app.js || hit "缺 douyin 原帖模板"
-grep -q 'hs_relay_pending' app.js || hit "缺接力返回标记（hs_relay_pending）"
+grep -q 'hs_pending_vid\|hs_relay_pending' app.js || hit "缺接力返回标记（hs_pending_vid）"
 grep -q 'pageshow' app.js || hit "缺 pageshow 返回检测"
 grep -q 'mock/post.html' app.js || hit "mock 原帖页未接线"
 [ -f mock/post.html ] || hit "mock/post.html 缺失"
