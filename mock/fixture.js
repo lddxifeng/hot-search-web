@@ -49,3 +49,8 @@ const MOCK_STATE_TOPUP = Object.assign({}, MOCK_STATE, {
     }),
   ],
 });
+
+// 回落场景（指令块 E）：只剩第 2 推（?mocksolo=1）——选了不存在的版 → 自动回落「全部」
+const MOCK_STATE_SOLO = Object.assign({}, MOCK_STATE, {
+  editions: [MOCK_STATE.editions[1]],
+});

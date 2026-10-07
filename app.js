@@ -77,6 +77,8 @@ const R = {
   set date(v) { localStorage.setItem("hs_relay_date", v); },
   get host() { return localStorage.getItem("hs_post_host") || "iesdouyin"; },
   set host(v) { localStorage.setItem("hs_post_host", v); },
+  get ed() { return localStorage.getItem("hs_edition") || ""; },   // 推次选择器（指令块 E；""=全部）
+  set ed(v) { localStorage.setItem("hs_edition", v || ""); },
 };
 
 // 系统日（与 hotsearch/batchplan.py、Worker systemDay 同规则）：<06:01 归前一天
@@ -97,7 +99,8 @@ function postUrl(item) {
 function mockApi(path) {
   if (path.startsWith("/api/state")) {
     return Promise.resolve(structuredClone(
-      _q.has("mocktopup") ? MOCK_STATE_TOPUP : MOCK_STATE));
+      _q.has("mocksolo") ? MOCK_STATE_SOLO
+                         : _q.has("mocktopup") ? MOCK_STATE_TOPUP : MOCK_STATE));
   }
   return Promise.resolve({ ok: false, reason: "not_found" });
 }
@@ -150,30 +153,38 @@ function escapeHtml(s) {
 }
 
 // ---------- 版次数据 ----------
-function latestEdition() { return editions.length ? editions[editions.length - 1] : null; }
+// 推次选择器（指令块 E）：R.ed="" = 全部；选中某版=只显示该版。连刷范围=当前显示集合。
+function viewEditions() {
+  return R.ed ? editions.filter((e) => String(e.edition_no) === R.ed) : editions;
+}
+function latestEdition() {
+  const v = viewEditions();
+  return v.length ? v[v.length - 1] : null;
+}
 function latestItem() {
   const ed = latestEdition();
   return ed && ed.items.length ? ed.items[ed.items.length - 1] : null;
 }
 function findItem(vid) {
-  // 按 vid 锚定定位：返回 {edition, idx, item} 或 null（新版插入/日清切换不漂移）
-  for (const ed of editions) {
+  // 按 vid 锚定定位（限当前显示集合）：返回 {edition, idx, item} 或 null
+  for (const ed of viewEditions()) {
     const idx = ed.items.findIndex((v) => v.vid === vid);
     if (idx >= 0) return { edition: ed, idx, item: ed.items[idx] };
   }
   return null;
 }
 function nextAfter(vid) {
-  // 下一条：同版 idx+1；版尾 → 下一版首条；最后一版末尾 → null（结束页）
+  // 下一条（限当前显示集合）：同版 idx+1；版尾 → 下一可见版首条；末尾 → null（结束页）
   const hit = findItem(vid);
   if (!hit) return null;
   const { edition, idx } = hit;
   if (idx + 1 < edition.items.length) {
     return { edition, idx: idx + 1, item: edition.items[idx + 1] };
   }
-  const eIdx = editions.indexOf(edition);
-  if (eIdx >= 0 && eIdx + 1 < editions.length) {
-    const nEd = editions[eIdx + 1];
+  const veds = viewEditions();
+  const eIdx = veds.indexOf(edition);
+  if (eIdx >= 0 && eIdx + 1 < veds.length) {
+    const nEd = veds[eIdx + 1];
     if (nEd.items.length) return { edition: nEd, idx: 0, item: nEd.items[0] };
   }
   return null;
@@ -194,11 +205,13 @@ function syncTitle() {
 // ---------- 渲染 ----------
 function renderHeader() {
   $("date").textContent = plan && plan.date ? `· ${plan.date}` : "";
+  const veds = viewEditions();
   if (plan && plan.live && editions.length) {
     const last = latestEdition();
     $("overview").textContent =
-      `当日已推 ${editions.length} 版 · 最新版 第${last.edition_no}推 ${(last.pushed_at || "").slice(11, 16)}` +
-      ` · 今日全免费`;
+      `当日已推 ${editions.length} 版 · 最新版 第${editions[editions.length - 1].edition_no}推` +
+      ` ${(editions[editions.length - 1].pushed_at || "").slice(11, 16)}` +
+      (R.ed ? ` · 只看第${R.ed}推` : "") + ` · 今日全免费`;
     const hit = curPos();
     $("progress").textContent = hit
       ? `已刷到 第${hit.edition.edition_no}推 #${hit.item.num}/${hit.edition.items.length}`
@@ -213,17 +226,31 @@ function renderHeader() {
   $("cd-1").classList.toggle("on", cd === 1000);
   $("cd-15").classList.toggle("on", cd === 1500);
   $("cd-2").classList.toggle("on", cd === 2000);
-  // 继续按钮：下一条（vid 锚定）；无指针=从最新版 #1 开始
+  // 推次选择器（指令块 E）：「全部」+ 当日各版（动态生成，带 HH:MM）；与倒计时同款
+  const sw = $("ed-switch");
+  sw.innerHTML = "";
+  const opts = [["", "全部"]].concat(
+    editions.map((e) => [String(e.edition_no),
+                         `第${e.edition_no}推 ${(e.pushed_at || "").slice(11, 16)}`]));
+  for (const [val, label] of opts) {
+    const b = document.createElement("button");
+    b.className = "link-btn";
+    b.id = `ed-${val || "all"}`;
+    b.textContent = label;
+    b.classList.toggle("on", R.ed === val);
+    b.addEventListener("click", () => { R.ed = val; boot(); });
+    sw.appendChild(b);
+  }
+  // 继续按钮：下一条（vid 锚定）；无指针=从当前显示集合最新版 #1 开始
   const nxt = curPos() ? nextAfter(R.vid) : null;
-  const start = latestItem() && latestEdition().items[0];
-  const done = plan && plan.live && editions.length && !nxt && curPos() &&
+  const done = plan && plan.live && veds.length && !nxt && curPos() &&
                R.vid === (latestItem() || {}).vid;
   if (nxt) {
     $("relay-start").textContent = `▶ 继续 第${nxt.edition.edition_no}推 #${nxt.item.num}`;
   } else {
-    $("relay-start").textContent = R.vid ? "▶ 开始连刷" : "▶ 开始连刷";
+    $("relay-start").textContent = "▶ 开始连刷";
   }
-  $("relay-start").classList.toggle("hidden", !plan || !plan.live || !!done);
+  $("relay-start").classList.toggle("hidden", !plan || !plan.live || !veds.length || !!done);
   $("relay-stop").classList.toggle("hidden", !R.on);
   syncTitle();
 }
@@ -231,7 +258,7 @@ function renderHeader() {
 function renderDirectory() {
   const root = $("directory");
   root.innerHTML = "";
-  for (const ed of editions) {
+  for (const ed of viewEditions()) {   // 推次选择器：选中某版=只显示该版；全部=按序全展示
     const sec = document.createElement("section");
     sec.className = "group";
     const h = document.createElement("div");
@@ -293,7 +320,9 @@ function showEnd() {
   $("directory").innerHTML = "";
   $("end-page").classList.remove("hidden");
   $("end-recap").textContent = plan
-    ? `当日已推 ${editions.length} 版 · 全部刷完 · 想继续到群里发「补」，补完回来刷新本页接着看`
+    ? (R.ed
+        ? `第 ${R.ed} 推刷完 · 想继续到群里发「补」，补完回来刷新本页接着看`
+        : `当日已推 ${editions.length} 版 · 全部刷完 · 想继续到群里发「补」，补完回来刷新本页接着看`)
     : "";
   renderHeader();
 }
@@ -386,6 +415,8 @@ async function boot() {
   if (R.date && R.date !== plan.date) { R.on = false; R.vid = ""; R.pendingVid = ""; }
   R.date = plan.date;
   editions = Array.isArray(plan.editions) ? plan.editions : [];
+  // 推次选择器回落（指令块 E）：所选版不存在（日清后/跨天/?date= 考古）→ 自动回落「全部」
+  if (R.ed && !editions.some((e) => String(e.edition_no) === R.ed)) R.ed = "";
   booted = true;
   renderHeader();
   renderDirectory();
