@@ -19,8 +19,8 @@
 </div>
 <script>
   const q = new URLSearchParams(location.search);
-  document.title = `模拟原帖 #${q.get("n")}`;
-  document.getElementById("t").textContent = `模拟原帖 #${q.get("n")} · ${q.get("vid")}`;
+  document.title = `模拟原帖 ${q.get("vid") || q.get("n") || ""}`;
+  document.getElementById("t").textContent = `模拟原帖 ${q.get("vid") || q.get("n") || ""}`;
 </script>
 </body>
 </html>
