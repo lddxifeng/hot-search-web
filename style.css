@@ -98,4 +98,10 @@ button:disabled { opacity: .5; cursor: default; }
   border: 1px solid #2a313a; border-radius: 7px; font-size: 15px;
 }
 .error { color: #ff8f80; font-size: 13px; }
+/* 拉取重试中的角落小字（2026-10-14 拍板）：不遮内容、不抢视线 */
+.refreshing {
+  position: fixed; right: 12px; bottom: 12px; z-index: 25;
+  color: #8b949e; font-size: 12px; background: rgba(23, 27, 33, .85);
+  padding: 4px 10px; border-radius: 10px;
+}
 .hidden { display: none !important; }
