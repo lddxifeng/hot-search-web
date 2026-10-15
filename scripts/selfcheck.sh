@@ -101,6 +101,20 @@ grep -q '本版未点' app.js || hit "顶部「本版未点N条」缺失"
 grep -q 'unclicked' index.html app.js || hit "unclicked 元素缺失"
 grep -q 'track' mock/fixture.js || hit "fixture 缺 track 字段"
 
+# 11) v4.5 点击上报+补漏标记+总时长（2026-10-16 拍板 C2）：sendBeacon / reported 置位 /
+#     🔁补漏小金标 / 视频合计约X分钟（旧节不许回退）
+grep -q 'sendBeacon' app.js || hit "sendBeacon 上报缺失"
+grep -q 'reportClick' app.js || hit "reportClick 上报函数缺失"
+grep -q 'flushUnreported' app.js || hit "批量补报（flushUnreported）缺失"
+grep -q 'reported' app.js || hit "clicked_map reported 标记缺失"
+grep -q 'WORKER_BASE + "/click"' app.js || hit "上报地址未走 WORKER_BASE（疑似写死）"
+grep -q '🔁补漏' app.js || hit "「🔁补漏」标记缺失"
+grep -q 'repush-badge' app.js style.css || hit "补漏徽章样式缺失"
+grep -q 'v.repush === true' app.js || hit "repush 严格等于 true 判定缺失（旧数据兼容）"
+grep -q 'repush' mock/fixture.js || hit "fixture 缺 repush 样本"
+grep -q '合计' app.js || hit "「视频合计约X分钟」缺失"
+grep -q 'PER_VIDEO_OVERHEAD_MS = 15000' app.js || hit "15秒/条损耗口径（对齐后端）缺失"
+
 if [ "$fails" -ne 0 ]; then
   echo "密钥扫描未通过"
   exit 1

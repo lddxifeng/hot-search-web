@@ -56,6 +56,12 @@ footer { margin-top: 34px; text-align: center; }
 }
 .meta-author { color: #6fe3ff; }
 .meta-fans { color: #ffd75e; }
+/* 🔁补漏小金标（2026-10-16 拍板 C2）：回池补推条目专用，金色系同 track-badge */
+.repush-badge {
+  font-size: 11px; color: #ffd75e; margin-left: 6px; padding: 0 5px;
+  border: 1px solid rgba(255, 215, 94, .6); border-radius: 6px;
+  background: rgba(255, 215, 94, .14); white-space: nowrap;
+}
 .click-state { margin-left: auto; font-size: 12px; padding-top: 2px; white-space: nowrap; }
 .click-state.done { color: #8b949e; }
 .click-state.todo { color: #6cb2ff; }
