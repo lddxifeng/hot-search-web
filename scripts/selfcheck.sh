@@ -73,6 +73,18 @@ grep -q 'pageshow' app.js || hit "缺 pageshow 返回检测"
 grep -q 'mock/post.html' app.js || hit "mock 原帖页未接线"
 [ -f mock/post.html ] || hit "mock/post.html 缺失"
 
+# 9) v4.3 拉取韧性（2026-10-14 拍板）：失败自动重试每3秒×最多3次 / 刷新中小字 /
+#    全败保留旧数据并标注「可能不是最新」/ 回前台超5分钟自动重拉 / 防重入
+grep -q 'FETCH_RETRY_MAX = 3' app.js || hit "重试上限3次缺失"
+grep -q 'FETCH_RETRY_MS = 3000' app.js || hit "重试间隔3秒缺失"
+grep -q '刷新中…' app.js index.html || hit "「刷新中…」指示缺失"
+grep -q 'refreshing' app.js index.html style.css || hit "refreshing 元素/样式缺失"
+grep -q '可能不是最新' app.js || hit "「可能不是最新」标注缺失"
+grep -q 'visibilitychange' app.js || hit "回前台自动重拉（visibilitychange）缺失"
+grep -q 'STALE_MS = 5 \* 60e3' app.js || hit "5分钟判旧（STALE_MS）缺失"
+grep -q 'lastOkAt' app.js || hit "上次成功时间戳（lastOkAt）缺失"
+grep -q 'booting' app.js || hit "防重入锁（booting）缺失"
+
 # 10) v4.4 视频条目视觉+已点记录（2026-10-14 拍板）：赛道徽章/高亮配色/clicked_map
 grep -q 'track-badge' app.js style.css || hit "赛道徽章（track-badge）缺失"
 grep -q 'v.track' app.js || hit "track 字段渲染缺失"

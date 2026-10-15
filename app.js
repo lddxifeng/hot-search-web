@@ -28,6 +28,12 @@
  * X-Hotsearch-Token 头。网页无图文区为永久拍板决策（2026-10-06）：偶遇图文帖
  * 仍正确渲染（🖼徽标+只走原帖），板块不做。
  *
+ * 拉取韧性（2026-10-14 拍板）：fetch 失败不立刻报错——自动重试每 3 秒一次、
+ * 最多 3 次；重试期间保留上次已渲染内容，右下角小字「刷新中…」；3 次重试全失败
+ * 才显示「网络异常，请刷新重试」，有旧数据时保留并标注「可能不是最新」。
+ * 页面回前台（visibilitychange）且数据超 5 分钟未更新 → 自动重拉一次。
+ * bad_token（暗号失效）不进重试，直接弹暗号框。
+ *
  * 视频条目视觉（2026-10-14 拍板）：赛道徽章=track 字段金色小徽章（旧数据无 track
  * → 不显示、不报错、其余正常）；作者名亮青 #6fe3ff、粉丝数金黄 #ffd75e。
  * 词条榜不上本站，以上只动视频条目。
@@ -68,6 +74,8 @@ let editions = [];               // 版次序列（含 lean items）
 let booted = false;
 let lastRet = null;              // 本次返回刚看完的条目（倒计时横条的重看目标）
 let countdownTimer = null;
+let lastOkAt = 0;                // 上次 /api/state 成功时间戳（0=从未成功；回前台超 5 分钟判旧）
+let booting = false;             // 防重入：重试等待/拉取期间不再叠拉
 
 const $ = (id) => document.getElementById(id);
 
@@ -445,6 +453,12 @@ function onReturn() {
 }
 
 // ---------- 启动 ----------
+const FETCH_RETRY_MAX = 3;        // 拉取失败自动重试上限（每 3 秒一次，2026-10-14 拍板）
+const FETCH_RETRY_MS = 3000;
+const STALE_MS = 5 * 60e3;        // 回前台超过 5 分钟未更新 → 自动重拉
+const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
+function showRefreshing(on) { $("refreshing").classList.toggle("hidden", !on); }
+
 async function boot() {
   if (MOCK) {
     $("mock-banner").classList.remove("hidden");
@@ -457,15 +471,34 @@ async function boot() {
     }
   }
   if (!token) { showTokenModal(); return; }
+  if (booting) return;            // 重试等待期间被重复触发（推次切换/回前台）→ 不叠拉
+  booting = true;
   hideTokenModal();
-  try {
-    plan = await api("/api/state" + (_q.get("date") ? `?date=${encodeURIComponent(_q.get("date"))}` : ""));
-  } catch (e) {
-    if (String(e && e.message) !== "bad_token") notice("网络异常，请刷新重试");
-    return;
+  let p = null;
+  for (let attempt = 0; attempt <= FETCH_RETRY_MAX; attempt++) {
+    try {
+      p = await api("/api/state" + (_q.get("date") ? `?date=${encodeURIComponent(_q.get("date"))}` : ""));
+      break;
+    } catch (e) {
+      if (String(e && e.message) === "bad_token") { booting = false; return; }  // 暗号失效不重试
+      if (attempt < FETCH_RETRY_MAX) {
+        showRefreshing(true);     // 重试期间保留上次已渲染内容，角落提示「刷新中…」
+        await sleep(FETCH_RETRY_MS);
+        continue;
+      }
+      // 3 次重试全失败才报错；有旧数据则保留并标注「可能不是最新」
+      showRefreshing(false);
+      booting = false;
+      notice(lastOkAt ? "网络异常，请刷新重试（当前为上次成功数据，可能不是最新）"
+                      : "网络异常，请刷新重试");
+      return;
+    }
   }
-  if (!plan.ok) { notice(plan.text || "状态读取失败，请稍后再试"); return; }
-  if (!plan.live) { notice("今日还没有正推（等第一版）。请先在群里发「推」。"); return; }
+  showRefreshing(false);
+  plan = p;
+  notice("");
+  if (!plan.ok) { notice(plan.text || "状态读取失败，请稍后再试"); booting = false; return; }
+  if (!plan.live) { notice("今日还没有正推（等第一版）。请先在群里发「推」。"); booting = false; return; }
   // 跨系统日作废旧接力进度
   if (R.date && R.date !== plan.date) { R.on = false; R.vid = ""; R.pendingVid = ""; }
   R.date = plan.date;
@@ -473,6 +506,8 @@ async function boot() {
   // 推次回落（指令块 E 修订）：所选版不存在 → effectiveEd() 内自愈回落「最新一版」，
   // 不回写存储（用户手动选择留档，版回来了自动恢复）
   booted = true;
+  booting = false;
+  lastOkAt = Date.now();          // 数据真正落盘渲染才算「已更新」（回前台判旧用）
   renderHeader();
   renderDirectory();
   onReturn();                       // 若是「看原帖→返回」则进入接力倒计时
@@ -528,5 +563,9 @@ $("relay-pause").addEventListener("click", () => {
 
 window.addEventListener("pageshow", () => { if (booted) onReturn(); });
 window.addEventListener("pagehide", cancelCountdown);   // 离页即收倒计时（防后台到点乱跳）
+// 后台切回前台：数据超 5 分钟未更新 → 自动重拉一次（2026-10-14 拍板）
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && booted && Date.now() - lastOkAt > STALE_MS) boot();
+});
 
 boot();
