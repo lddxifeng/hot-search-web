@@ -33,6 +33,12 @@
  * 才显示「网络异常，请刷新重试」，有旧数据时保留并标注「可能不是最新」。
  * 页面回前台（visibilitychange）且数据超 5 分钟未更新 → 自动重拉一次。
  * bad_token（暗号失效）不进重试，直接弹暗号框。
+ *
+ * 视频条目视觉（2026-10-14 拍板）：赛道徽章=track 字段金色小徽章（旧数据无 track
+ * → 不显示、不报错、其余正常）；作者名亮青 #6fe3ff、粉丝数金黄 #ffd75e。
+ * 词条榜不上本站，以上只动视频条目。
+ * 已点记录（localStorage clicked_map：vid→时间戳）：任何条目跳转前落账；条目角落
+ * 「已点✓」（灰）/「未点」（亮）；顶部「本版未点N条」随点击实时减。
  */
 
 // === 配置项（全页唯一）：Worker 地址。地址公开属正常——页面与源码本就公开，
@@ -72,6 +78,35 @@ let lastOkAt = 0;                // 上次 /api/state 成功时间戳（0=从未
 let booting = false;             // 防重入：重试等待/拉取期间不再叠拉
 
 const $ = (id) => document.getElementById(id);
+
+// ---------- 已点记录（localStorage clicked_map：vid → 时间戳，2026-10-14 拍板） ----------
+const CM_KEY = "clicked_map";
+const CM_MAX = 3000;   // 封顶防无限膨胀：超了按时间戳从最旧修剪
+function clickedMap() {
+  try { return JSON.parse(localStorage.getItem(CM_KEY)) || {}; }
+  catch { return {}; }
+}
+function renderUnclicked() {
+  const m = clickedMap();
+  let n = 0;
+  for (const ed of viewEditions()) for (const v of ed.items) if (!m[v.vid]) n++;
+  $("unclicked").textContent =
+    plan && plan.live && editions.length ? `本版未点 ${n} 条` : "";
+}
+function markClicked(vid) {
+  if (!vid) return;
+  const m = clickedMap();
+  m[vid] = Date.now();
+  const ks = Object.keys(m);
+  if (ks.length > CM_MAX) {
+    ks.sort((a, b) => m[a] - m[b]);
+    for (const k of ks.slice(0, ks.length - CM_MAX)) delete m[k];
+  }
+  localStorage.setItem(CM_KEY, JSON.stringify(m));
+  renderUnclicked();   // 顶部「本版未点N条」随点击实时减（跳转前同步落账）
+  const st = document.querySelector(`#item-${CSS.escape(vid)} .click-state`);
+  if (st) { st.className = "click-state done"; st.textContent = "已点✓"; }
+}
 
 // ---------- 接力标记（只读存储驱动，vid 锚定） ----------
 const R = {
@@ -273,12 +308,14 @@ function renderHeader() {
   }
   $("relay-start").classList.toggle("hidden", !plan || !plan.live || !veds.length || !!done);
   $("relay-stop").classList.toggle("hidden", !R.on);
+  renderUnclicked();   // 顶部「本版未点N条」（随当前显示集合）
   syncTitle();
 }
 
 function renderDirectory() {
   const root = $("directory");
   root.innerHTML = "";
+  const cm = clickedMap();   // 已点记录一次性读出，逐条落「已点✓/未点」
   for (const ed of viewEditions()) {   // 推次选择器：选中某版=只显示该版；全部=按序全展示
     const sec = document.createElement("section");
     sec.className = "group";
@@ -303,17 +340,21 @@ function renderDirectory() {
       if (Number(v.ratio) > 0)
         stats.push(`赞播比·峰值 ${(Number(v.ratio) * 100).toFixed(1)}%`);
       const pub = fmtPub(v.pub_ts);
+      // 赛道徽章（2026-10-14 拍板）：旧数据无 track → 不显示徽章、不报错
+      const trackBadge = v.track ? `<span class="track-badge">${escapeHtml(v.track)}</span>` : "";
+      const clicked = !!cm[v.vid];
       li.innerHTML =
         `<div class="num" data-relay="${v.vid}" title="从这条开始连刷">#${v.num}</div>` +
         `<div class="body">` +
-        `<span class="title">${escapeHtml(v.title) || "（无标题）"}</span>${photo}${watched}` +
-        `<div class="dim meta">${escapeHtml(v.author) || "—"}` +
-        (Number(v.fans) > 0 ? ` · 粉丝·${fmtWan(v.fans)}` : "") +
+        `<span class="title">${escapeHtml(v.title) || "（无标题）"}</span>${photo}${watched}${trackBadge}` +
+        `<div class="dim meta"><span class="meta-author">${escapeHtml(v.author) || "—"}</span>` +
+        (Number(v.fans) > 0 ? ` · <span class="meta-fans">粉丝·${fmtWan(v.fans)}</span>` : "") +
         ` · ${fmtDur(v.duration_ms)}` +
         (pub ? ` · ${pub}` : "") +
         (stats.length ? ` · ${stats.join(" · ")}` : "") +
         `</div>` +
-        `</div>`;
+        `</div>` +
+        `<span class="click-state ${clicked ? "done" : "todo"}">${clicked ? "已点✓" : "未点"}</span>`;
       // 点编号=从该条起连刷（vid 锚定）；点标题/其余=单看（纯跳转不写接力标记）
       li.querySelector(".num").addEventListener("click", (e) => {
         e.stopPropagation();
@@ -351,6 +392,7 @@ function showEnd() {
 // ---------- 接力核心（vid 锚定） ----------
 function jumpTo(item, relaying) {
   if (!item) return;
+  markClicked(item.vid);   // 已点记录：任何条目跳转前落账（连刷/单看同口径）
   if (relaying) {
     R.on = true;
     R.vid = item.vid;

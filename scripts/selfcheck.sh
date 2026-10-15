@@ -85,6 +85,22 @@ grep -q 'STALE_MS = 5 \* 60e3' app.js || hit "5分钟判旧（STALE_MS）缺失"
 grep -q 'lastOkAt' app.js || hit "上次成功时间戳（lastOkAt）缺失"
 grep -q 'booting' app.js || hit "防重入锁（booting）缺失"
 
+# 10) v4.4 视频条目视觉+已点记录（2026-10-14 拍板）：赛道徽章/高亮配色/clicked_map
+grep -q 'track-badge' app.js style.css || hit "赛道徽章（track-badge）缺失"
+grep -q 'v.track' app.js || hit "track 字段渲染缺失"
+grep -q '#6fe3ff' style.css || hit "作者亮青 #6fe3ff 缺失"
+grep -q '#ffd75e' style.css || hit "粉丝金黄 #ffd75e 缺失"
+grep -q 'meta-author' app.js style.css || hit "作者高亮（meta-author）缺失"
+grep -q 'meta-fans' app.js style.css || hit "粉丝高亮（meta-fans）缺失"
+grep -q 'clicked_map' app.js || hit "clicked_map 键名缺失"
+grep -q 'localStorage.setItem(CM_KEY' app.js || hit "clicked_map 写入缺失"
+grep -q 'localStorage.getItem(CM_KEY' app.js || hit "clicked_map 读取缺失"
+grep -q '已点✓' app.js || hit "「已点✓」状态缺失"
+grep -q '未点' app.js || hit "「未点」状态缺失"
+grep -q '本版未点' app.js || hit "顶部「本版未点N条」缺失"
+grep -q 'unclicked' index.html app.js || hit "unclicked 元素缺失"
+grep -q 'track' mock/fixture.js || hit "fixture 缺 track 字段"
+
 if [ "$fails" -ne 0 ]; then
   echo "密钥扫描未通过"
   exit 1

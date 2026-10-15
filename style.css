@@ -48,6 +48,17 @@ footer { margin-top: 34px; text-align: center; }
 .title { display: inline; font-size: 15px; font-weight: 600; color: #e8eaed; }
 .tag { font-size: 12px; color: #9fd6a4; margin-left: 6px; }
 .tag.hot { color: #ffd479; }
+/* 视频条目视觉（2026-10-14 拍板）：赛道徽章金色系；作者亮青；粉丝金黄 */
+.track-badge {
+  font-size: 11px; color: #ffd75e; margin-left: 6px; padding: 0 6px;
+  border: 1px solid rgba(255, 215, 94, .45); border-radius: 6px;
+  background: rgba(255, 215, 94, .08); white-space: nowrap;
+}
+.meta-author { color: #6fe3ff; }
+.meta-fans { color: #ffd75e; }
+.click-state { margin-left: auto; font-size: 12px; padding-top: 2px; white-space: nowrap; }
+.click-state.done { color: #8b949e; }
+.click-state.todo { color: #6cb2ff; }
 .meta { margin-top: 4px; }
 
 .btn {
