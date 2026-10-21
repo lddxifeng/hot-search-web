@@ -37,8 +37,14 @@
  * 视频条目视觉（2026-10-14 拍板）：赛道徽章=track 字段金色小徽章（旧数据无 track
  * → 不显示、不报错、其余正常）；作者名亮青 #6fe3ff、粉丝数金黄 #ffd75e。
  * 词条榜不上本站，以上只动视频条目。
- * 已点记录（localStorage clicked_map：vid→时间戳）：任何条目跳转前落账；条目角落
- * 「已点✓」（灰）/「未点」（亮）；顶部「本版未点N条」随点击实时减。
+ * 已点记录（localStorage clicked_map：vid→{t:时间戳, reported:布尔}）：任何条目跳转前
+ * 落账；条目角落「已点✓」（灰）/「未点」（亮）；顶部「本版未点N条 · 视频合计约X分钟」
+ * 随点击实时减/随推次范围重算（合计口径=视频条目 duration+15秒/条，对齐后端
+ * PER_VIDEO_OVERHEAD_S；图文与缺时长条不计）。落账同时机 sendBeacon 上报 Worker /click
+ * （暗号复用拉数据变量 token，绝不写死；mock 模式打同源 /mock/click，不打真实 Worker）；
+ * 页面加载扫描批量补报未上报的，成功才置 reported=true，失败留待下次。
+ * 回池补推（2026-10-16 拍板 C）：条目 repush===true → 标题旁「🔁补漏」小金标；
+ * 旧数据无字段 → 不显示不报错（同 track 徽章兼容写法）。
  */
 
 // === 配置项（全页唯一）：Worker 地址。地址公开属正常——页面与源码本就公开，
@@ -79,27 +85,56 @@ let booting = false;             // 防重入：重试等待/拉取期间不再�
 
 const $ = (id) => document.getElementById(id);
 
-// ---------- 已点记录（localStorage clicked_map：vid → 时间戳，2026-10-14 拍板） ----------
+// ---------- 已点记录（localStorage clicked_map：vid → {t:时间戳, reported:布尔}） ----------
+// 2026-10-14 拍板落账+角标；2026-10-16 拍板 C2 追加 sendBeacon 上报 Worker /click
+// （暗号复用拉数据变量 token，绝不写死）与批量补报；合计时长对齐后端 15 秒/条损耗口径。
 const CM_KEY = "clicked_map";
 const CM_MAX = 3000;   // 封顶防无限膨胀：超了按时间戳从最旧修剪
+const PER_VIDEO_OVERHEAD_MS = 15000;   // 对齐后端 PER_VIDEO_OVERHEAD_S=15（选条口径）
 function clickedMap() {
-  try { return JSON.parse(localStorage.getItem(CM_KEY)) || {}; }
-  catch { return {}; }
+  let m;
+  try { m = JSON.parse(localStorage.getItem(CM_KEY)) || {}; }
+  catch { m = {}; }
+  for (const k of Object.keys(m)) {   // 旧格式 vid→时间戳 原地升级为 {t, reported:false}（待补报）
+    if (typeof m[k] === "number") m[k] = { t: m[k], reported: false };
+  }
+  return m;
+}
+function reportClick(ids) {
+  // sendBeacon 上报：线上打 Worker /click；mock 模式打同源 /mock/click（绝不打真实 Worker）
+  if (!ids.length || !token) return false;
+  const base = MOCK ? "/mock/click" : WORKER_BASE + "/click";
+  try {
+    return navigator.sendBeacon(base + "?t=" + encodeURIComponent(token)
+                                + "&ids=" + ids.map(encodeURIComponent).join(","));
+  } catch { return false; }
+}
+function flushUnreported() {
+  // 页面加载批量补报：扫描未上报的，一次性补报；成功才置 reported=true，失败留待下次
+  const m = clickedMap();
+  const pend = Object.keys(m).filter((k) => !m[k].reported);
+  if (pend.length && reportClick(pend)) {
+    for (const k of pend) m[k].reported = true;
+    localStorage.setItem(CM_KEY, JSON.stringify(m));
+  }
 }
 function renderUnclicked() {
   const m = clickedMap();
-  let n = 0;
-  for (const ed of viewEditions()) for (const v of ed.items) if (!m[v.vid]) n++;
-  $("unclicked").textContent =
-    plan && plan.live && editions.length ? `本版未点 ${n} 条` : "";
+  let n = 0, ms = 0;
+  for (const ed of viewEditions()) for (const v of ed.items) {
+    if (!m[v.vid]) n++;
+    if (!v.is_photo) ms += (Number(v.duration_ms) || 0) + PER_VIDEO_OVERHEAD_MS;  // 缺时长按0计
+  }
+  $("unclicked").textContent = plan && plan.live && editions.length
+    ? `本版未点 ${n} 条 · 视频合计约 ${Math.round(ms / 60000)} 分钟` : "";
 }
 function markClicked(vid) {
   if (!vid) return;
   const m = clickedMap();
-  m[vid] = Date.now();
+  m[vid] = { t: Date.now(), reported: reportClick([vid]) };   // 落账同一时机上报
   const ks = Object.keys(m);
   if (ks.length > CM_MAX) {
-    ks.sort((a, b) => m[a] - m[b]);
+    ks.sort((a, b) => m[a].t - m[b].t);
     for (const k of ks.slice(0, ks.length - CM_MAX)) delete m[k];
   }
   localStorage.setItem(CM_KEY, JSON.stringify(m));
@@ -342,11 +377,13 @@ function renderDirectory() {
       const pub = fmtPub(v.pub_ts);
       // 赛道徽章（2026-10-14 拍板）：旧数据无 track → 不显示徽章、不报错
       const trackBadge = v.track ? `<span class="track-badge">${escapeHtml(v.track)}</span>` : "";
+      // 🔁补漏小金标（2026-10-16 拍板 C）：repush===true 才显示；旧数据无字段不显示不报错
+      const repushBadge = v.repush === true ? `<span class="repush-badge">🔁补漏</span>` : "";
       const clicked = !!cm[v.vid];
       li.innerHTML =
         `<div class="num" data-relay="${v.vid}" title="从这条开始连刷">#${v.num}</div>` +
         `<div class="body">` +
-        `<span class="title">${escapeHtml(v.title) || "（无标题）"}</span>${photo}${watched}${trackBadge}` +
+        `<span class="title">${escapeHtml(v.title) || "（无标题）"}</span>${photo}${watched}${trackBadge}${repushBadge}` +
         `<div class="dim meta"><span class="meta-author">${escapeHtml(v.author) || "—"}</span>` +
         (Number(v.fans) > 0 ? ` · <span class="meta-fans">粉丝·${fmtWan(v.fans)}</span>` : "") +
         ` · ${fmtDur(v.duration_ms)}` +
@@ -510,6 +547,7 @@ async function boot() {
   lastOkAt = Date.now();          // 数据真正落盘渲染才算「已更新」（回前台判旧用）
   renderHeader();
   renderDirectory();
+  flushUnreported();              // 批量补报：历史落账未上报的一次性补（成功才置位）
   onReturn();                       // 若是「看原帖→返回」则进入接力倒计时
 }
 

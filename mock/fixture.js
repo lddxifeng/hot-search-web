@@ -27,6 +27,7 @@ function _mkItem(edNo, num) {
     ratio: num % 11 === 0 ? 0 : (2 + (num % 5)) / 100,    // 赞播比·峰值（透传 best_ratio；每 11 条 1 条为 0）
     share_url: `https://example.com/v/${vid}`,
     is_photo: edNo === 1 && num === 8,                    // 1 条图文样本（验 🖼图文 渲染语义保留）
+    repush: num % 9 === 0,                                // 🔁补漏样本（每 9 条 1 条，验小金标；其余无字段语义=false）
   };
 }
 
